@@ -1,0 +1,30 @@
+// Botstacker
+// by Tollski
+// 
+// The key for each sub-section represents the count of real players on the player team.
+//
+// The formula for how many bots are allowed by the plugin is based on whether the server's capacity is odd or even.
+//   If the server's capacity is even, the formula is: BotCount <= ServerCapacity - PlayerCount - 2.
+//   If the server's capacity is odd, the formula is: BotCount <= ServerCapacity - PlayerCount - 1.
+//   Examples:
+//     With a 16-slot server, if there is 1 player online you can have up to 13 bots (16 - 1 - 2 = 13).
+//     With a 15-slot server, if there is 1 player online you can have up to 13 bots (15 - 1 - 1 = 13).
+
+"BotStackerPlayerCountConfigurations"
+{
+	"1"
+	{
+		"DesiredBotsOnPlayerTeam"		"1"
+		"DesiredBotsOnOtherTeam"		"6"
+	}
+	"2"
+	{
+		"DesiredBotsOnPlayerTeam"		"0"
+		"DesiredBotsOnOtherTeam"		"8"
+	}
+	"3"
+	{
+		"DesiredBotsOnPlayerTeam"		"0"
+		"DesiredBotsOnOtherTeam"		"11"
+	}
+}

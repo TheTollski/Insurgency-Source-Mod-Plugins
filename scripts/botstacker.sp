@@ -4,15 +4,16 @@
 #pragma semicolon 1
 #pragma newdecls required
 
-#define PLUGIN_VERSION "1.07"
-
-int _maxPlayersToEnableBotStacking = 3;
+#define PLUGIN_VERSION "1.08"
 
 int _botsCurrentlyKickingFromTeam[4] = { 0, 0, 0, 0 };
 bool _botStackingIsEnabled = false;
 bool _clientsRealPlayerStatus[MAXPLAYERS + 1] = { false, ... };
 int _desiredBotsOnRealPlayersTeam = 0;
+int _desiredBotsOnRealPlayersTeamArray[MAXPLAYERS + 1] = { 0, ... };
 int _desiredBotsOnOtherTeam = 0;
+int _desiredBotsOnOtherTeamArray[MAXPLAYERS + 1] = { 0, ... };
+int _maxPlayersToEnableBotStacking = 0;
 int _normalBotQuota = 0;
 int _normalTeamsUnbalanceLimit = 0;
 int _teamWithRealPlayers = 0;
@@ -46,6 +47,8 @@ public void OnPluginStart()
 
 	_cvarShufflePlayersAfterStackingDisabled = CreateConVar("sm_botstacker_shuffle_players", "1", "Shuffle players to balance teams after stacking disabled?");
 	AutoExecConfig(true, "botstacker");
+
+	ReadPlayerCountConfigurations();
 }
 
 public bool OnClientConnect(int client, char[] rejectmsg, int maxlen)
@@ -275,6 +278,61 @@ public void Event_RoundEnd(Event event, const char[] name, bool dontBroadcast)
 
 // 
 
+public void ReadPlayerCountConfigurations()
+{
+	char path[PLATFORM_MAX_PATH];
+	BuildPath(Path_SM, path, sizeof(path), "configs/botstacker.txt");
+
+	if (!FileExists(path))
+	{
+		SetFailState("Configuration file '%s' is not found.", path);
+		return;
+	}
+
+	KeyValues playerCountConfigurationsKeyValues = new KeyValues("BotStackerPlayerCountConfigurations");
+	if (!playerCountConfigurationsKeyValues.ImportFromFile(path))
+	{
+		SetFailState("Unable to parse Key Values with name 'BotStackerPlayerCountConfigurations' from file '%s'.", path);
+		return;
+	}
+
+	if (!playerCountConfigurationsKeyValues.GotoFirstSubKey())
+	{
+		SetFailState("Unable to find subkeys in 'BotStackerPlayerCountConfigurations' section in file '%s'.", path);
+		return;
+	}
+
+	int lastPlayerCount = 0;
+	do
+	{
+		char playerCountString[3];
+		char desiredBotsOnPlayerTeamString[3];
+		char desiredBotsOnOtherTeamString[3];
+
+		playerCountConfigurationsKeyValues.GetSectionName(playerCountString, sizeof(playerCountString));
+		playerCountConfigurationsKeyValues.GetString("DesiredBotsOnPlayerTeam", desiredBotsOnPlayerTeamString, sizeof(desiredBotsOnPlayerTeamString));
+		playerCountConfigurationsKeyValues.GetString("DesiredBotsOnOtherTeam", desiredBotsOnOtherTeamString, sizeof(desiredBotsOnOtherTeamString));
+
+		int playerCount = StringToInt(playerCountString);
+		int desiredBotsOnPlayerTeam = StringToInt(desiredBotsOnPlayerTeamString);
+		int desiredBotsOnOtherTeam = StringToInt(desiredBotsOnOtherTeamString);
+
+		if (playerCount != lastPlayerCount + 1)
+		{
+			SetFailState("BotStackerPlayerCountConfigurations is invalid: looking for '%d' but found '%d'.", lastPlayerCount + 1, playerCount);
+		}
+
+		_desiredBotsOnRealPlayersTeamArray[playerCount] = desiredBotsOnPlayerTeam;
+		_desiredBotsOnOtherTeamArray[playerCount] = desiredBotsOnOtherTeam;
+
+		//PrintToServer("%d - %d - %d", playerCount, desiredBotsOnPlayerTeam, desiredBotsOnOtherTeam);
+		lastPlayerCount = playerCount;
+	}
+	while(playerCountConfigurationsKeyValues.GotoNextKey());
+
+	_maxPlayersToEnableBotStacking = lastPlayerCount;
+}
+
 public bool CheckIfBotStackingStatusShouldBeEnabledAndSetIt(int teamThatAPlayerIsLeaving, int teamThatAPlayerIsJoining)
 {
 	if (ShouldBotStackingBeEnabled(teamThatAPlayerIsLeaving, teamThatAPlayerIsJoining))
@@ -332,13 +390,14 @@ public bool ShouldBotStackingBeEnabled(int teamThatAPlayerIsLeaving, int teamTha
 
 public void EnableBotStacking(int teamThatAPlayerIsLeaving, int teamThatAPlayerIsJoining)
 {
+	int botQuota = RoundToCeil(float(MaxClients) / float(2)) - 1;
 	if (!_botStackingIsEnabled)
 	{
 		PrintToServer("[Bot Stacker] EnableBotStacking");
 		PrintToChatAll("[Bot Stacker] All players are on one team: enabling bot stacking.");
 		_botStackingIsEnabled = true;
 		
-		ChangeBotQuota(RoundToFloor(float(MaxClients) / float(2)) - 1, true);
+		ChangeBotQuota(botQuota, true);
 		
 		ConVar mpTeamsUnbalanceLimitConVar = FindConVar("mp_teams_unbalance_limit");
 		PrintToServer("[Bot Stacker] Changing mp_teams_unbalance_limit from %d to 0.", mpTeamsUnbalanceLimitConVar.IntValue);
@@ -405,32 +464,17 @@ public void EnableBotStacking(int teamThatAPlayerIsLeaving, int teamThatAPlayerI
 		return;
 	}
 	
-	if (realPlayersOnTeam == 1)
-	{
-		_desiredBotsOnRealPlayersTeam = 1;
-		_desiredBotsOnOtherTeam = 8;
-	}
-	else if (realPlayersOnTeam == 2)
-	{
-		_desiredBotsOnRealPlayersTeam = 0;
-		_desiredBotsOnOtherTeam = 9;
-	}
-	else if (realPlayersOnTeam == 3)
-	{
-		_desiredBotsOnRealPlayersTeam = 0;
-		_desiredBotsOnOtherTeam = 11;
-	}
-	else
-	{
-		PrintToConsoleAll("[Bot Stacker] Bot stacking not supported with %d real players on team.", realPlayersOnTeam);
-		DisableBotStacking(teamThatAPlayerIsLeaving, teamThatAPlayerIsJoining);
-		return;
-	}
+	_desiredBotsOnRealPlayersTeam = _desiredBotsOnRealPlayersTeamArray[realPlayersOnTeam];
+	_desiredBotsOnOtherTeam = _desiredBotsOnOtherTeamArray[realPlayersOnTeam];
 
-	int maxBotsCurrentlyAllowed = MaxClients - realPlayersOnTeam - 2;
-	if (_desiredBotsOnRealPlayersTeam + _desiredBotsOnOtherTeam > maxBotsCurrentlyAllowed)
+	int maxBotsCurrentlyAllowed = (botQuota * 2) - realPlayersOnTeam;
+	while (_desiredBotsOnRealPlayersTeam + _desiredBotsOnOtherTeam > maxBotsCurrentlyAllowed && _desiredBotsOnRealPlayersTeam > 0)
 	{
-		_desiredBotsOnOtherTeam = maxBotsCurrentlyAllowed - _desiredBotsOnRealPlayersTeam;
+		_desiredBotsOnRealPlayersTeam--;
+	}
+	while (_desiredBotsOnRealPlayersTeam + _desiredBotsOnOtherTeam > maxBotsCurrentlyAllowed && _desiredBotsOnOtherTeam > 0)
+	{
+		_desiredBotsOnOtherTeam--;
 	}
 
 	SetBotsPerTeam(_teamWithRealPlayers == 2 ? _desiredBotsOnRealPlayersTeam : _desiredBotsOnOtherTeam, _teamWithRealPlayers == 3 ? _desiredBotsOnRealPlayersTeam : _desiredBotsOnOtherTeam);

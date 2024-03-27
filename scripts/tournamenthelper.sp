@@ -35,7 +35,6 @@ int _team2GameWins = 0; // This team joined as security.
 int _teamGameWinsRequired = 0;
 
 // TODO:
-// Tracking match results
 // Pause playerstats while match not in progress.
 // Automatically change map when match is over, or print hint text.
 
@@ -88,6 +87,41 @@ public void OnPluginStart()
 	ConnectToDatabase();
 }
 
+public bool OnClientConnect(int client, char[] rejectmsg, int maxlen)
+{
+	if (_currentGameState == GAME_STATE_NONE || _currentGameState == GAME_STATE_IDLE)
+	{
+		return true;
+	}
+
+	int otherConnectedPlayersCount = GetOtherConnectedPlayersCount(client);
+	if (otherConnectedPlayersCount == 0) 
+	{
+		return true;
+	}
+
+	char authId[35];
+	GetClientAuthId(client, AuthId_Steam2, authId, sizeof(authId));
+	for (int i = 0; i < _playerCount; i++)
+	{
+		if (StrEqual(authId, _playerAuthIdInfo[i]))
+		{
+			return true;
+		}
+	}
+
+	if (_currentGameState == GAME_STATE_VOTING)
+	{
+		strcopy(rejectmsg, maxlen, "Voting is in progress for a private match.");
+	}
+	else
+	{
+		strcopy(rejectmsg, maxlen, "A private match is in progress.");
+	}
+	
+	return false;
+}
+
 public void OnClientDisconnect(int client)
 {
 	if (IsFakeClient(client))
@@ -125,16 +159,8 @@ public void OnClientPostAdminCheck(int client)
 		return;
 	}
 	
-	int playersConnected = 0;
-	for (int i = 1; i < MaxClients + 1; i++)
-	{
-		if (IsClientInGame(i) && !IsFakeClient(i))
-		{
-			playersConnected++;
-		}
-	}
-
-	if (playersConnected == 1) 
+	int otherConnectedPlayersCount = GetOtherConnectedPlayersCount(client);
+	if (otherConnectedPlayersCount == 0) 
 	{
 		PrintToServer("[Tournament Helper] A player connected. Ensuring game state set to idle.");
 		SetGameState(GAME_STATE_IDLE);
@@ -449,6 +475,25 @@ public int GetClientFromAuthId(const char[] paramAuthId)
 	}
 
 	return -1;
+}
+
+public int GetOtherConnectedPlayersCount(int clientToIgnore)
+{
+	int otherConnectedPlayersCount = 0;
+	for (int i = 1; i < MaxClients + 1; i++)
+	{
+		if (i == clientToIgnore)
+		{
+			continue;
+		}
+
+		if (IsClientInGame(i) && !IsFakeClient(i))
+		{
+			otherConnectedPlayersCount++;
+		}
+	}
+
+	return otherConnectedPlayersCount;
 }
 
 public int GetPlayerAllowedTeam(int playerClient)

@@ -26,6 +26,7 @@ int _normalBotQuota = 0;
 int _currentGameState = GAME_STATE_NONE;
 int _currentVoteType = VOTE_TYPE_NONE;
 int _lastMapChangeTimestamp = 0;
+int _matchId = 0;
 char _playerAuthIdInfo[MAXPLAYERS + 1][35];
 int _playerCount = 0;
 int _playerTeamInfo[MAXPLAYERS + 1] = { -1, ... };
@@ -34,14 +35,9 @@ int _team2GameWins = 0; // This team joined as security.
 int _teamGameWinsRequired = 0;
 
 // TODO:
-// Disable voting on maps and stuff
-// Respawn mode while match not in progress
-// Voting to start match ()
 // Tracking match results
-// Enforce no team swapping while match in progress
-// Point system?
-// Unlock server if empty or game is too long.
 // Pause playerstats while match not in progress.
+// Automatically change map when match is over, or print hint text.
 
 public Plugin myinfo =
 {
@@ -262,10 +258,10 @@ public Action Command_StartVote(int client, int args)
 
 public void Event_GameEnd(Event event, const char[] name, bool dontBroadcast)
 {
-	int team1Score = event.GetInt("team1_score");
-	int team2Score = event.GetInt("team2_score");
+	// int team1Score = event.GetInt("team1_score");
+	// int team2Score = event.GetInt("team2_score");
 	int winner = event.GetInt("winner");
-	PrintToChatAll("game_end. team1_score: %d, team2_score: %d, winner: %d", team1Score, team2Score, winner);
+	// PrintToChatAll("game_end. team1_score: %d, team2_score: %d, winner: %d", team1Score, team2Score, winner);
 
 	if (_currentGameState != GAME_STATE_MATCH_IN_PROGRESS)
 	{
@@ -275,20 +271,38 @@ public void Event_GameEnd(Event event, const char[] name, bool dontBroadcast)
 	if (winner == 3)
 	{
 		_team1GameWins++;
+
+		char queryString[256];
+		SQL_FormatQuery(_database, queryString, sizeof(queryString), "UPDATE th_matches SET team1GameWins = team1GameWins + 1 WHERE id = %d", _matchId);
+		SQL_TQuery(_database, SqlQueryCallback_Default, queryString);
 	}
 	else if (winner == 2)
 	{
 		_team2GameWins++;
+
+		char queryString[256];
+		SQL_FormatQuery(_database, queryString, sizeof(queryString), "UPDATE th_matches SET team2GameWins = team2GameWins + 1 WHERE id = %d", _matchId);
+		SQL_TQuery(_database, SqlQueryCallback_Default, queryString);
 	}
 
+	int matchWinner = -1;
 	if (_team1GameWins == _teamGameWinsRequired)
 	{
-		PrintToChatAll("Team 1 is the winner.");
-		SetGameState(GAME_STATE_IDLE);
+		matchWinner = 1;
+		PrintToChatAll("Insurgents team wins the match!");
 	}
-	if (_team2GameWins == _teamGameWinsRequired)
+	else if (_team2GameWins == _teamGameWinsRequired)
 	{
-		PrintToChatAll("Team 2 is the winner.");
+		matchWinner = 2;
+		PrintToChatAll("Security team wins the match!");
+	}
+
+	if (matchWinner > 0)
+	{
+		char queryString[256];
+		SQL_FormatQuery(_database, queryString, sizeof(queryString), "UPDATE th_matches SET endTimestamp = %d, matchWinningTeam = %d WHERE id = %d", GetTime(), matchWinner, _matchId);
+		SQL_TQuery(_database, SqlQueryCallback_Default, queryString);
+
 		SetGameState(GAME_STATE_IDLE);
 	}
 }
@@ -320,7 +334,7 @@ public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast
 	{
 		DataPack pack = new DataPack();
 		pack.WriteCell(victimClient);
-		CreateTimer(3.00, PlayerTeamEvent_Respawn_AfterDelay, pack);
+		CreateTimer(1.00, PlayerTeamEvent_Respawn_AfterDelay, pack);
 	}
 }
 
@@ -379,6 +393,27 @@ public Action PlayerTeamEvent_ChangeClientTeam_AfterDelay(Handle timer, DataPack
 //
 // Helper Functions
 //
+
+public int GetClientFromAuthId(const char[] paramAuthId)
+{
+	for (int i = 1; i < MaxClients + 1; i++)
+	{
+		if (!IsClientInGame(i) || IsFakeClient(i))
+		{
+			continue;
+		}
+
+		char authId[35];
+		GetClientAuthId(i, AuthId_Steam2, authId, sizeof(authId));
+
+		if (StrEqual(authId, paramAuthId))
+		{
+			return i;
+		}
+	}
+
+	return -1;
+}
 
 public int GetPlayerAllowedTeam(int playerClient)
 {
@@ -450,7 +485,7 @@ public void SetGameState(int gameState)
 	{
 		if (previousGameState == GAME_STATE_MATCH_READY || previousGameState == GAME_STATE_MATCH_IN_PROGRESS)
 		{
-			PrintToChatAll("\x07f5bf03[Tournament Helper] Match has been cancelled. Teams are now unlocked.");
+			PrintToChatAll("\x07f5bf03[Tournament Helper] Match has ended. Teams are now unlocked.");
 		}
 		else if (previousGameState == GAME_STATE_VOTING)
 		{
@@ -498,6 +533,9 @@ public void SetGameState(int gameState)
 		PrintToChatAll("\x07f5bf03[Tournament Helper] Match is ready to start. Call an in-game vote to select the first map.");
 
 		// _conVar_insBotQuota.IntValue = 0; TODO UNCOMMENT
+		_matchId = 0;
+
+		CreateMatchRecord();		
 
 		ShowHintText("Match is ready to start. Call an in-game vote to select the first map.");
 		return;
@@ -513,13 +551,17 @@ public void SetGameState(int gameState)
 		_team1GameWins = 0;
 		_team2GameWins = 0;
 
+		char queryString[256];
+		SQL_FormatQuery(_database, queryString, sizeof(queryString), "UPDATE th_matches SET startTimestamp = %d WHERE id = %d", GetTime(), _matchId);
+		SQL_TQuery(_database, SqlQueryCallback_Default, queryString);
+
 		return;
 	}
 
 	PrintToChatAll("\x07e50000[Tournament Helper] Unsupported game state '%d'. This should not happen!", _currentGameState);
 }
 
-// 
+// Hint Text Functions
 
 Handle _hintTextHandle = null;
 
@@ -677,7 +719,7 @@ public int GetPlayerVoteItemIndex(
 
 		if (StrEqual(authId, playerAuthId))
 		{
-			char playerName[64];
+			char playerName[MAX_NAME_LENGTH];
 			GetClientName(client_info[i][VOTEINFO_CLIENT_INDEX], playerName, sizeof(playerName));
 			char item[64];
 			menu.GetItem(client_info[i][VOTEINFO_CLIENT_ITEM], item, sizeof(item));
@@ -890,9 +932,64 @@ public void ConnectToDatabase()
 		return;
 	}
 
-	SQL_TQuery(_database, SqlQueryCallback_Default, "CREATE TABLE IF NOT EXISTS th_state (key VARCHAR(64) PRIMARY KEY, value Int(11) NOT NULL)");
-	SQL_TQuery(_database, SqlQueryCallback_Default, "CREATE TABLE IF NOT EXISTS th_playerAuthIdInfo (i Int(3) PRIMARY KEY, value VARCHAR(35) NOT NULL)");
-	SQL_TQuery(_database, SqlQueryCallback_Default, "CREATE TABLE IF NOT EXISTS th_playerTeamInfo (i Int(3) PRIMARY KEY, value Int(2) NOT NULL)");
+	SQL_TQuery(_database, SqlQueryCallback_Default, "CREATE TABLE IF NOT EXISTS th_state (key VARCHAR(64) PRIMARY KEY, value INT(11) NOT NULL)");
+	SQL_TQuery(_database, SqlQueryCallback_Default, "CREATE TABLE IF NOT EXISTS th_playerAuthIdInfo (i INT(3) PRIMARY KEY, value VARCHAR(35) NOT NULL)");
+	SQL_TQuery(_database, SqlQueryCallback_Default, "CREATE TABLE IF NOT EXISTS th_playerTeamInfo (i INT(3) PRIMARY KEY, value INT(2) NOT NULL)");
+
+	SQL_TQuery(_database, SqlQueryCallback_Default, "CREATE TABLE IF NOT EXISTS th_matches (id INTEGER PRIMARY KEY AUTOINCREMENT, readyTimestamp INT(11) NOT NULL, startTimestamp INT(11) NULL, endTimestamp INT(11) NULL, team1GameWins INT(3) NOT NULL, team2GameWins INT(3) NOT NULL, matchWinningTeam INT(3) NOT NULL)");
+	SQL_TQuery(_database, SqlQueryCallback_Default, "CREATE TABLE IF NOT EXISTS th_players (authId VARCHAR(35), matchId INT(8) NOT NULL, team INT(3) NOT NULL, name VARCHAR(128) NOT NULL, UNIQUE(authId, matchId))");
+}
+
+public void CreateMatchRecord()
+{
+	char queryString[256];
+	SQL_FormatQuery(_database, queryString, sizeof(queryString),
+		"INSERT INTO th_matches (readyTimestamp, team1GameWins, team2GameWins, matchWinningTeam) VALUES (%d, %d, %d, %d)",
+		 GetTime(), 0, 0, 0);
+	SQL_TQuery(_database, SqlQueryCallback_CreateMatchRecord1, queryString);
+}
+
+public void SqlQueryCallback_CreateMatchRecord1(Handle database, Handle handle, const char[] sError, any data)
+{
+	if (!handle)
+	{
+		ThrowError("SQL query error in SqlQueryCallback_CreateMatchRecord1: '%s'", sError);
+	}
+
+	char queryString[256];
+	SQL_FormatQuery(_database, queryString, sizeof(queryString), "SELECT id FROM th_matches order by id DESC LIMIT 1");
+	SQL_TQuery(_database, SqlQueryCallback_CreateMatchRecord2, queryString);
+}
+
+public void SqlQueryCallback_CreateMatchRecord2(Handle database, Handle handle, const char[] sError, any data)
+{
+	if (!handle)
+	{
+		ThrowError("SQL query error in SqlQueryCallback_CreateMatchRecord2: '%s'", sError);
+	}
+
+	SQL_FetchRow(handle);
+	
+	_matchId = SQL_FetchInt(handle, 0);
+
+	for (int i = 0; i < _playerCount; i++)
+	{
+		int client = GetClientFromAuthId(_playerAuthIdInfo[i]);
+
+		char playerName[MAX_NAME_LENGTH];
+		if (client > 0)
+		{
+			GetClientName(client, playerName, sizeof(playerName));
+		}
+		else
+		{
+			playerName = "Unknown";
+		}
+
+		char queryString[256];
+		SQL_FormatQuery(_database, queryString, sizeof(queryString), "INSERT INTO th_players (authId, matchId, team, name) VALUES ('%s', %d, %d, '%s')", _playerAuthIdInfo[i], _matchId, _playerTeamInfo[i], playerName);
+		SQL_TQuery(_database, SqlQueryCallback_Default, queryString);
+	}
 }
 
 public void SaveState()
@@ -900,9 +997,9 @@ public void SaveState()
 	char queryString[512];
 	SQL_FormatQuery(
 		_database, queryString, sizeof(queryString),
-		"REPLACE INTO th_state (key, value) VALUES ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d)",
+		"REPLACE INTO th_state (key, value) VALUES ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d)",
 		"conVar_insBotQuota_value", _conVar_insBotQuota.IntValue, "conVar_mpIgnoreWinConditions_value", _conVar_mpIgnoreWinConditions.IntValue, "conVar_svVoteIssueChangelevelAllowed_value", _conVar_svVoteIssueChangelevelAllowed.IntValue,
-		"currentGameState", _currentGameState, "currentVoteType", _currentVoteType, "lastMapChangeTimestamp", _lastMapChangeTimestamp, "playerCount", _playerCount, "team1GameWins", _team1GameWins, "team2GameWins", _team2GameWins, "teamGameWinsRequired", _teamGameWinsRequired);
+		"currentGameState", _currentGameState, "currentVoteType", _currentVoteType, "lastMapChangeTimestamp", _lastMapChangeTimestamp, "matchId", _matchId, "playerCount", _playerCount, "team1GameWins", _team1GameWins, "team2GameWins", _team2GameWins, "teamGameWinsRequired", _teamGameWinsRequired);
 	SQL_TQuery(_database, SqlQueryCallback_Default, queryString);
 
 	SQL_TQuery(_database, SqlQueryCallback_SaveState1, "DELETE FROM th_playerAuthIdInfo");
@@ -991,6 +1088,10 @@ public void SqlQueryCallback_LoadState1(Handle database, Handle handle, const ch
 		else if (StrEqual(key, "_lastMapChangeTimestamp"))
 		{
 			_lastMapChangeTimestamp = value;
+		}
+		else if (StrEqual(key, "matchId"))
+		{
+			_matchId = value;
 		}
 		else if (StrEqual(key, "playerCount"))
 		{

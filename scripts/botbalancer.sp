@@ -4,11 +4,13 @@
 #pragma semicolon 1
 #pragma newdecls required
 
-#define PLUGIN_VERSION "1.00"
+#define PLUGIN_VERSION "1.01"
 
 bool _balancingIsActive = false;
-int _botQuota = 0;
+int _normalBotQuota = 0;
 int _playerTeam = 0;
+
+bool _pluginIsChangingInsBotQuota = false;
 
 bool _clientsRealPlayerStatus[MAXPLAYERS + 1] = { false, ... };
 
@@ -25,7 +27,10 @@ public Plugin myinfo =
 public void OnPluginStart()
 {
 	CreateConVar("sm_botbalancer_version", PLUGIN_VERSION, "Standard plugin version ConVar. Please don't change me!", FCVAR_REPLICATED|FCVAR_NOTIFY|FCVAR_DONTRECORD);
-	
+
+	ConVar insBotQuotaConVar = FindConVar("ins_bot_quota");
+	insBotQuotaConVar.AddChangeHook(ConVarChanged_InsBotQuota);
+
 	HookEvent("player_team", Event_PlayerTeam);
 
 	//RegConsoleCmd("sm_testoneplayer", Command_TestOnePlayer, "Acts as if one player is connected.");
@@ -102,7 +107,18 @@ public Action Command_TestMorePlayers(int client, int args)
 	return Plugin_Handled;
 }
 
-// Event Hooks
+// Hooks
+public void ConVarChanged_InsBotQuota(ConVar convar, char[] oldValue, char[] newValue)
+{
+	//PrintToChatAll("%d, %d, %s, %s", _pluginIsChangingInsBotQuota, convar.IntValue, oldValue, newValue);
+	if (!_balancingIsActive || _pluginIsChangingInsBotQuota)
+	{
+		return;
+	}
+
+	ChangeBotQuota(StringToInt(oldValue), true);
+}
+
 public void Event_PlayerTeam(Event event, const char[] name, bool dontBroadcast)
 {	
 	if (!_balancingIsActive)
@@ -152,16 +168,13 @@ public void ExactlyOneRealPlayerIsInGame()
 		return;
 	}
 	
-	PrintToServer("ExactlyOneRealPlayerIsInGame");
+	PrintToServer("botbalancer: ExactlyOneRealPlayerIsInGame");
 	_balancingIsActive = true;
 	
-	ConVar insBotQuotaConVar = FindConVar("ins_bot_quota");
-	PrintToServer("Changing ins_bot_quota from %d to 8.", insBotQuotaConVar.IntValue);
-	_botQuota = insBotQuotaConVar.IntValue;
-	insBotQuotaConVar.IntValue = 8;
+	ChangeBotQuota(8, true);
 	
 	ConVar mpTeamsUnbalanceLimitConVar = FindConVar("mp_teams_unbalance_limit");
-	PrintToServer("Changing mp_teams_unbalance_limit from %d to 0.", mpTeamsUnbalanceLimitConVar.IntValue);
+	PrintToServer("botbalancer: Changing mp_teams_unbalance_limit from %d to 0.", mpTeamsUnbalanceLimitConVar.IntValue);
 	mpTeamsUnbalanceLimitConVar.IntValue = 0;
 	
 	for (int i = 0; i < sizeof(_clientsRealPlayerStatus); i++)
@@ -185,16 +198,14 @@ public void MoreThanOneRealPlayerIsInGame()
 		return;
 	}
 	
-	PrintToServer("MoreThanOneRealPlayerIsInGame");
+	PrintToServer("botbalancer: MoreThanOneRealPlayerIsInGame");
 	_balancingIsActive = false;
 	_playerTeam = 0;
 	
-	ConVar insBotQuotaConVar = FindConVar("ins_bot_quota");
-	PrintToServer("Changing ins_bot_quota from %d to %d.", insBotQuotaConVar.IntValue, _botQuota);
-	insBotQuotaConVar.IntValue = _botQuota;
+	ChangeBotQuota(_normalBotQuota, false);
 	
 	ConVar mpTeamsUnbalanceLimitConVar = FindConVar("mp_teams_unbalance_limit");
-	PrintToServer("Changing mp_teams_unbalance_limit from %d to 1.", mpTeamsUnbalanceLimitConVar.IntValue);
+	PrintToServer("botbalancer: Changing mp_teams_unbalance_limit from %d to 1.", mpTeamsUnbalanceLimitConVar.IntValue);
 	mpTeamsUnbalanceLimitConVar.IntValue = 1;
 	
 	int securityTeamPlayerCount = GetTeamClientCount(2);
@@ -208,6 +219,21 @@ public void MoreThanOneRealPlayerIsInGame()
 	{
 		MoveXBotsFromTeamToTeam(3, 2, RoundToCeil(float((insurgentsTeamPlayerCount - securityTeamPlayerCount)) / float(2)));
 	}
+}
+
+public void ChangeBotQuota(int newQuota, bool savePreviousQuota)
+{
+	ConVar insBotQuotaConVar = FindConVar("ins_bot_quota");
+	PrintToServer("botbalancer: Changing ins_bot_quota from %d to %d.", insBotQuotaConVar.IntValue, newQuota);
+
+	if (savePreviousQuota)
+	{
+		_normalBotQuota = insBotQuotaConVar.IntValue;
+	}
+
+	_pluginIsChangingInsBotQuota = true;
+	insBotQuotaConVar.IntValue = newQuota;
+	_pluginIsChangingInsBotQuota = false;
 }
 
 public int GetRealPlayerCount()

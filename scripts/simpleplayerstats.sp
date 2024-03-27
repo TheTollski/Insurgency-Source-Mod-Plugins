@@ -11,6 +11,7 @@ Database _database;
 int _controlPointsThatPlayersAreTouching[MAXPLAYERS + 1] = { -1, ... };
 int _lastActiveTimeSavedTimestamps[MAXPLAYERS + 1] = { 0, ... };
 int _lastConnectedTimeSavedTimestamps[MAXPLAYERS + 1] = { 0, ... };
+//int _pluginStartTimestamp;
 
 public Plugin myinfo =
 {
@@ -40,6 +41,7 @@ public void OnPluginStart()
 	HookEvent("player_team", Event_PlayerTeam);
 
 	RegAdminCmd("sm_allstats", Command_AllStats, ADMFLAG_GENERIC, "Prints all player stats.");
+	RegAdminCmd("sm_auditlogs", Command_AuditLogs, ADMFLAG_GENERIC, "Prints audit logs.");
 	RegAdminCmd("sm_reset_stats_custom", Command_ResetStatsCustom, ADMFLAG_GENERIC, "Resets stats of all players for the custom time range.");
 
 	RegConsoleCmd("sm_mystats", Command_MyStats, "Prints your stats.");
@@ -47,6 +49,7 @@ public void OnPluginStart()
 	ConnectToDatabase();
 
 	_authIdDisconnectTimestampMap = new StringMap();
+	//_pluginStartTimestamp = GetTime();
 }
 
 public void OnClientDisconnect(int client)
@@ -90,6 +93,13 @@ public void OnClientPostAdminCheck(int client)
 
 	EnsurePlayerCustomDatabaseRecordExists(client);
 	EnsurePlayerTotalDatabaseRecordExists(client);
+}
+
+public void OnMapStart()
+{
+	char queryString[256];
+	SQL_FormatQuery(_database, queryString, sizeof(queryString), "SELECT * FROM sps_auditlogs LIMIT 1");
+	SQL_TQuery(_database, SqlQueryCallback_OnMapStart1, queryString);
 }
 
 public Action Command_AllStats(int client, int args)
@@ -185,6 +195,41 @@ public Action Command_AllStats(int client, int args)
 		"SELECT * FROM sps_players WHERE RecordType = '%s' ORDER BY %s DESC LIMIT %d OFFSET %d",
 		recordType, orderByColumn, pageSize, offset);
 	SQL_TQuery(_database, SqlQueryCallback_Command_AllStats1, queryString, GetClientUserId(client));
+	return Plugin_Handled;
+}
+
+public Action Command_AuditLogs(int client, int args)
+{
+	if (args > 1)
+	{
+		ReplyToCommand(client, "[Simple Player Stats] Usage: sm_auditlogs [Page]");
+		return Plugin_Handled;
+	}
+
+	char arg1[32];
+	if (args >= 1)
+	{
+		GetCmdArg(1, arg1, sizeof(arg1));
+	}
+	else
+	{
+		arg1 = "1";
+	}
+
+	if (args == 0)
+	{
+		ReplyToCommand(client, "[Simple Player Stats] Using defaults: sm_auditlogs 1");
+	}
+
+	int pageSize = 50;
+	int page = StringToInt(arg1);
+	int offset = (page - 1) * pageSize;
+
+	ReplyToCommand(client, "[Simple Player Stats] Audit logs are being printed in the console.");
+
+	char queryString[256];
+	SQL_FormatQuery(_database, queryString, sizeof(queryString), "SELECT * FROM sps_auditlogs ORDER BY Timestamp DESC LIMIT %d OFFSET %d", pageSize, offset);
+	SQL_TQuery(_database, SqlQueryCallback_Command_AuditLogs1, queryString, GetClientUserId(client));
 	return Plugin_Handled;
 }
 
@@ -522,9 +567,7 @@ public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast
 
 		char queryString[256];
 		SQL_FormatQuery(
-			_database,
-			queryString,
-			sizeof(queryString),
+			_database, queryString, sizeof(queryString),
 			"UPDATE sps_players SET EnemyBotKills = EnemyBotKills + %d, EnemyPlayerKills = EnemyPlayerKills + %d WHERE AuthId = '%s'",
 			victimIsBot ? 1 : 0, victimIsBot ? 0 : 1, authId);
 		SQL_TQuery(_database, SqlQueryCallback_Default, queryString);
@@ -537,9 +580,7 @@ public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast
 
 		char queryString[256];
 		SQL_FormatQuery(
-			_database,
-			queryString,
-			sizeof(queryString),
+			_database, queryString, sizeof(queryString),
 			"UPDATE sps_players SET DeathsToEnemyBots = DeathsToEnemyBots + %d, DeathsToEnemyPlayers = DeathsToEnemyPlayers + %d WHERE AuthId = '%s'",
 			attackerIsBot ? 1 : 0, attackerIsBot ? 0 : 1, authId);
 		SQL_TQuery(_database, SqlQueryCallback_Default, queryString);
@@ -588,10 +629,21 @@ public void ConnectToDatabase()
 		return;
 	}
 
+	SQL_TQuery(_database, SqlQueryCallback_Default, "CREATE TABLE IF NOT EXISTS sps_auditlogs (Timestamp INT(11) NOT NULL, Description VARCHAR(128) NOT NULL)");
+
 	SQL_TQuery(
-		_database,
-		SqlQueryCallback_Default,
-		"CREATE TABLE IF NOT EXISTS sps_players (AuthId VARCHAR(35) NOT NULL, RecordType VARCHAR(16) NOT NULL, PlayerName VARCHAR(64) NOT NULL, FirstConnectionTimestamp INT(11) NOT NULL, LastConnectionTimestamp INT(11) NOT NULL, ConnectionCount INT(7) NOT NULL, ConnectedTime INT(9) NOT NULL, ActiveTime INT(9) NOT NULL, EnemyBotKills INT(8) NOT NULL, EnemyPlayerKills INT(8) NOT NULL, TeamKills INT(8) NOT NULL, DeathsToEnemyBots INT(8) NOT NULL, DeathsToEnemyPlayers INT(8) NOT NULL, DeathsToSelf INT(8) NOT NULL, DeathsToTeam INT(8) NOT NULL, DeathsToOther INT(8) NOT NULL, ControlPointsCaptured INT(8), FlagsCaptured INT(8), FlagsPickedUp INT(8), ObjectivesDestroyed INT(8), UNIQUE(AuthId, RecordType))");
+		_database, SqlQueryCallback_Default,
+		"CREATE TABLE IF NOT EXISTS sps_players (AuthId VARCHAR(35) NOT NULL, RecordType VARCHAR(16) NOT NULL, PlayerName VARCHAR(64) NOT NULL, FirstConnectionTimestamp INT(11) NOT NULL, LastConnectionTimestamp INT(11) NOT NULL, ConnectionCount INT(7) NOT NULL, ConnectedTime INT(9) NOT NULL, ActiveTime INT(9) NOT NULL, EnemyBotKills INT(8) NOT NULL, EnemyPlayerKills INT(8) NOT NULL, TeamKills INT(8) NOT NULL, DeathsToEnemyBots INT(8) NOT NULL, DeathsToEnemyPlayers INT(8) NOT NULL, DeathsToSelf INT(8) NOT NULL, DeathsToTeam INT(8) NOT NULL, DeathsToOther INT(8) NOT NULL, ControlPointsCaptured INT(8) NOT NULL, FlagsCaptured INT(8) NOT NULL, FlagsPickedUp INT(8) NOT NULL, ObjectivesDestroyed INT(8) NOT NULL, UNIQUE(AuthId, RecordType))");
+}
+
+public void CreateAuditLog(const char[] logDescription)
+{
+	char queryString[512];
+	SQL_FormatQuery(
+		_database, queryString, sizeof(queryString),
+		"INSERT INTO sps_auditlogs (Timestamp, Description) VALUES (%d, '%s')",
+		GetTime(), logDescription);
+	SQL_TQuery(_database, SqlQueryCallback_Default, queryString);
 }
 
 public void EnsurePlayerCustomDatabaseRecordExists(int client)
@@ -626,7 +678,7 @@ public void SqlQueryCallback_Command_AllStats1(Handle database, Handle handle, c
 {
 	if (!handle)
 	{
-		ThrowError("SQL query error %d: '%s'", data, sError);
+		ThrowError("SQL query error in SqlQueryCallback_Command_AllStats1: %d, '%s'", data, sError);
 	}
 
 	int client = GetClientOfUserId(data);
@@ -678,11 +730,44 @@ public void SqlQueryCallback_Command_AllStats1(Handle database, Handle handle, c
 	}
 }
 
+public void SqlQueryCallback_Command_AuditLogs1(Handle database, Handle handle, const char[] sError, int data)
+{
+	if (!handle)
+	{
+		ThrowError("SQL query error in SqlQueryCallback_Command_AuditLogs1: %d, '%s'", data, sError);
+	}
+
+	int client = GetClientOfUserId(data);
+	if (client == 0)
+	{
+		return;
+	}
+
+	if (SQL_GetRowCount(handle) == 0)
+	{
+		PrintToConsole(client, "[Simple Player Stats] No rows found for selected query.");
+		return;
+	}
+
+	PrintToConsole(client, "Timestamp        | Description");
+	while (SQL_FetchRow(handle))
+	{
+		int timestamp = SQL_FetchInt(handle, 0);
+		char description[128];
+		SQL_FetchString(handle, 1, description, sizeof(description));
+
+		char dateTime[32]; 
+		FormatTime(dateTime, sizeof(dateTime), "%F %R", timestamp);
+
+		PrintToConsole(client, "%16s | %s", dateTime, description);
+	}
+}
+
 public void SqlQueryCallback_Command_MyStats1(Handle database, Handle handle, const char[] sError, int data)
 {
 	if (!handle)
 	{
-		ThrowError("SQL query error %d: '%s'", data, sError);
+		ThrowError("SQL query error in SqlQueryCallback_Command_MyStats1: %d, '%s'", data, sError);
 	}
 
 	int client = GetClientOfUserId(data);
@@ -728,6 +813,12 @@ public void SqlQueryCallback_Command_MyStats1(Handle database, Handle handle, co
 
 public void SqlQueryCallback_Command_ResetStatsCustom1(Handle database, Handle handle, const char[] sError, any nothing)
 {
+	if (!handle)
+	{
+		ThrowError("SQL query error in SqlQueryCallback_Command_ResetStatsCustom1: '%s'", sError);
+	}
+
+	CreateAuditLog("Custom stats reset.");
 	for (int i = 1; i < MaxClients + 1; i++)
 	{
 		if (IsClientConnected(i) && IsClientAuthorized(i) && !IsFakeClient(i))
@@ -741,7 +832,7 @@ public void SqlQueryCallback_Default(Handle database, Handle handle, const char[
 {
 	if (!handle)
 	{
-		ThrowError("SQL query error %d: '%s'", data, sError);
+		ThrowError("SQL query error in SqlQueryCallback_Default: %d, '%s'", data, sError);
 	}
 }
 
@@ -755,7 +846,7 @@ public void SqlQueryCallback_EnsurePlayerDatabaseRecordsExist1(Handle database, 
 
 	if (!handle)
 	{
-		ThrowError("SQL query error %d: '%s'", userid, sError);
+		ThrowError("SQL query error in SqlQueryCallback_EnsurePlayerDatabaseRecordsExist1: %d, '%s', '%s'", userid, recordType, sError);
 	}
 
 	int client = GetClientOfUserId(userid);
@@ -776,9 +867,7 @@ public void SqlQueryCallback_EnsurePlayerDatabaseRecordsExist1(Handle database, 
 	{
 		char queryString[512];
 		SQL_FormatQuery(
-			_database,
-			queryString,
-			sizeof(queryString),
+			_database, queryString, sizeof(queryString),
 			"INSERT INTO sps_players (AuthId, RecordType, PlayerName, FirstConnectionTimestamp, LastConnectionTimestamp, ConnectionCount, ConnectedTime, ActiveTime, EnemyBotKills, EnemyPlayerKills, TeamKills, DeathsToEnemyBots, DeathsToEnemyPlayers, DeathsToSelf, DeathsToTeam, DeathsToOther, ControlPointsCaptured, FlagsCaptured, FlagsPickedUp, ObjectivesDestroyed) VALUES ('%s', '%s', '%s', %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d)",
 			authId, recordType, name, timestamp, timestamp, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 		SQL_TQuery(_database, SqlQueryCallback_Default, queryString);
@@ -799,9 +888,7 @@ public void SqlQueryCallback_EnsurePlayerDatabaseRecordsExist1(Handle database, 
 
 	char queryString[256];
 	SQL_FormatQuery(
-		_database,
-		queryString,
-		sizeof(queryString),
+		_database, queryString, sizeof(queryString),
 		"UPDATE sps_players SET LastConnectionTimestamp = %d, ConnectionCount = ConnectionCount + 1, PlayerName = '%s' WHERE AuthId = '%s' AND RecordType = '%s'",
 		timestamp, name, authId, recordType);
 	SQL_TQuery(_database, SqlQueryCallback_Default, queryString);
@@ -810,6 +897,24 @@ public void SqlQueryCallback_EnsurePlayerDatabaseRecordsExist1(Handle database, 
 	{
 		PrintToChat(client, "Welcome %s, you have played on this server %d times for %dh%dm (%dh%dm active).", name, connectionCount + 1, connectedTime / 3600, connectedTime % 3600 / 60, activeTime / 3600, activeTime % 3600 / 60);
 	}
+}
+
+public void SqlQueryCallback_OnMapStart1(Handle database, Handle handle, const char[] sError, any nothing)
+{
+	// Since callbacks don't seem to work in methods called by OnPluginStart I have to do this in OnMapStart.
+
+	if (!handle)
+	{
+		ThrowError("SQL query error in SqlQueryCallback_OnMapStart1: '%s'", sError);
+	}
+
+	if (SQL_GetRowCount(handle) > 0)
+	{
+		return;
+	}
+
+	CreateAuditLog("Total stats reset.");
+	CreateAuditLog("Custom stats reset.");
 }
 
 public void UpdateClientActiveAndConnectedTimes(int client)
@@ -835,9 +940,7 @@ public void UpdateClientActiveAndConnectedTimes(int client)
 
 	char queryString[256];
 	SQL_FormatQuery(
-		_database,
-		queryString,
-		sizeof(queryString),
+		_database, queryString, sizeof(queryString),
 		"UPDATE sps_players SET ActiveTime = ActiveTime + %d, ConnectedTime = ConnectedTime + %d WHERE AuthId = '%s'",
 		additionalActiveTime, additionalConnectedTime, authId);
 	SQL_TQuery(_database, SqlQueryCallback_Default, queryString);

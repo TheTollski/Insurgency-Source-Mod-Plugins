@@ -13,6 +13,7 @@ ConVar global_playtext[3];
 ConVar global_bot;
 ConVar global_log;
 char gNextLevel[128];
+int gGamesPlayedThisMap;
 
 // A boolean that checks if medium is allowed
 // Disabled by default.
@@ -63,6 +64,10 @@ public void OnPluginStart() {
 	RegAdminCmd("sm_endround", Command_EndRound, ADMFLAG_ROOT, "sm_endround");
 }
 
+public void OnMapStart() {
+	gGamesPlayedThisMap = 0;
+}
+
 public Action Command_EndRound(int client, int args)
 {
 	if (args < 1)
@@ -87,7 +92,16 @@ public Action Command_EndRound(int client, int args)
 	return Plugin_Handled;
 }
 
-public Action Event_GameEnd_Pre(Handle event, const char[] name, bool dontBroadcast) {
+public Action Event_GameEnd_Pre(Event event, const char[] name, bool dontBroadcast) {
+	gGamesPlayedThisMap++;
+
+	ConVar mpMaxGamesConVar = FindConVar("mp_maxgames");
+	int maxGames = mpMaxGamesConVar.IntValue;
+
+	if(gGamesPlayedThisMap < maxGames) {
+		return;
+	}
+
 	hasEnoughPlayer();
 }
 

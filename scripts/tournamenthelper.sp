@@ -8,7 +8,8 @@
 
 const int GAME_STATE_NOTHING = 1;
 const int GAME_STATE_VOTING = 2;
-const int GAME_STATE_MATCH = 3;
+const int GAME_STATE_MATCH_STARTING = 3;
+const int GAME_STATE_MATCH_IN_PROGRESS = 4;
 
 const int VOTE_TYPE_NONE = 0;
 const int VOTE_TYPE_READY = 1;
@@ -21,6 +22,14 @@ int _normalBotQuota = 0;
 char _playerAuthIdInfo[MAXPLAYERS + 1][35];
 int _playerCount = 0;
 int _playerTeamInfo[MAXPLAYERS + 1] = { -1, ... };
+
+ConVar _insBotQuotaConVar = null;
+ConVar _mpIgnoreWinConditionsConVar = null;
+ConVar _svVoteIssueChangelevelAllowedConVar = null;
+
+int _gameWinsRequired = 0;
+int _team1GameWins = 0; // This team joined as insurgents.
+int _team2GameWins = 0; // This team joined as security.
 
 // TODO:
 // Disable voting on maps and stuff
@@ -51,6 +60,7 @@ public void OnPluginStart()
 
 	AddCommandListener(Command_Jointeam, "jointeam");
 
+	HookEvent("game_end", Event_GameEnd);
 	HookEvent("player_death", Event_PlayerDeath);
 	HookEvent("player_team", Event_PlayerTeam);
 
@@ -60,6 +70,10 @@ public void OnPluginStart()
 
 	ConVar mpTeamsUnbalanceLimitConVar = FindConVar("mp_teams_unbalance_limit");
 	mpTeamsUnbalanceLimitConVar.IntValue = 0;
+
+	_insBotQuotaConVar = FindConVar("ins_bot_quota");
+	_mpIgnoreWinConditionsConVar = FindConVar("mp_ignore_win_conditions");
+	_svVoteIssueChangelevelAllowedConVar = FindConVar("sv_vote_issue_changelevel_allowed");
 
 	// Respawn logic taken from https://github.com/jaredballou/insurgency-sourcemod/blob/master/scripting/disabled/respawn.sp
 	GameData gameData = LoadGameConfigFile("plugin.respawn");
@@ -124,9 +138,17 @@ public void OnClientPostAdminCheck(int client)
 	}
 }
 
+public void OnConfigsExecuted()
+{
+	_normalBotQuota = _insBotQuotaConVar.IntValue;
+}
+
 public void OnMapStart()
 {
-
+	if (_currentGameState == GAME_STATE_MATCH_STARTING)
+	{
+		SetGameState(GAME_STATE_MATCH_IN_PROGRESS);
+	}
 }
 
 public Action Command_EndMatch(int client, int args)
@@ -136,7 +158,7 @@ public Action Command_EndMatch(int client, int args)
 		return Plugin_Handled;
 	}
 
-	if (_currentGameState != GAME_STATE_MATCH)
+	if (_currentGameState != GAME_STATE_MATCH_STARTING && _currentGameState != GAME_STATE_MATCH_IN_PROGRESS)
 	{
 		ReplyToCommand(client, "\x07e50000[Tournament Helper] Failed to end match; no match is in progress.");
 		return Plugin_Handled;
@@ -212,6 +234,39 @@ public Action Command_StartVote(int client, int args)
 // Hooks
 //
 
+public void Event_GameEnd(Event event, const char[] name, bool dontBroadcast)
+{
+	int team1Score = event.GetInt("team1_score");
+	int team2Score = event.GetInt("team2_score");
+	int winner = event.GetInt("winner");
+	PrintToChatAll("game_end. team1_score: %d, team2_score: %d, winner: %d", team1Score, team2Score, winner);
+
+	if (_currentGameState != GAME_STATE_MATCH_IN_PROGRESS)
+	{
+		return;
+	}
+
+	if (winner == 3)
+	{
+		_team1GameWins++;
+	}
+	else if (winner == 2)
+	{
+		_team2GameWins++;
+	}
+
+	if (_team1GameWins == _gameWinsRequired)
+	{
+		PrintToChatAll("Team 1 is the winner.");
+		SetGameState(GAME_STATE_NOTHING);
+	}
+	if (_team2GameWins == _gameWinsRequired)
+	{
+		PrintToChatAll("Team 2 is the winner.");
+		SetGameState(GAME_STATE_NOTHING);
+	}
+}
+
 public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast)
 {	
 	// int customkill = event.GetInt("customkill");
@@ -235,7 +290,7 @@ public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast
 	int victimUserid = event.GetInt("userid");
 	int victimClient = GetClientOfUserId(victimUserid);
 
-	if (_currentGameState != GAME_STATE_MATCH)
+	if (_currentGameState != GAME_STATE_MATCH_STARTING && _currentGameState != GAME_STATE_MATCH_IN_PROGRESS)
 	{
 		DataPack pack = new DataPack();
 		pack.WriteCell(victimClient);
@@ -341,14 +396,19 @@ public void SetGameState(int gameState)
 		return;
 	}
 
-	if (gameState == GAME_STATE_MATCH && _currentGameState == GAME_STATE_NOTHING)
+	if (gameState == GAME_STATE_VOTING && _currentGameState != GAME_STATE_NOTHING)
 	{
-		PrintToChatAll("\x07e50000[Tournament Helper] Cannot set game state to 'MatchInProgress'. This should not happen!");
+		PrintToChatAll("\x07e50000[Tournament Helper] Cannot set game state to 'Voting'. This should not happen!");
 		return;
 	}
-	if (gameState == GAME_STATE_VOTING && _currentGameState == GAME_STATE_MATCH)
+	if (gameState == GAME_STATE_MATCH_STARTING && _currentGameState != GAME_STATE_VOTING)
 	{
-		PrintToChatAll("\x07e50000[Tournament Helper] Cannot set game state to 'VotingInProgress'. This should not happen!");
+		PrintToChatAll("\x07e50000[Tournament Helper] Cannot set game state to 'MatchStarting'. This should not happen!");
+		return;
+	}
+	if (gameState == GAME_STATE_MATCH_IN_PROGRESS && _currentGameState != GAME_STATE_MATCH_STARTING)
+	{
+		PrintToChatAll("\x07e50000[Tournament Helper] Cannot set game state to 'MatchInProgress'. This should not happen!");
 		return;
 	}
 
@@ -359,7 +419,7 @@ public void SetGameState(int gameState)
 
 	if (_currentGameState == GAME_STATE_NOTHING)
 	{
-		if (previousGameState == GAME_STATE_MATCH)
+		if (previousGameState == GAME_STATE_MATCH_STARTING || previousGameState == GAME_STATE_MATCH_IN_PROGRESS)
 		{
 			PrintToChatAll("\x07f5bf03[Tournament Helper] Match has been cancelled. Teams are now unlocked.");
 		}
@@ -370,11 +430,9 @@ public void SetGameState(int gameState)
 
 		_currentVoteType = VOTE_TYPE_NONE;
 
-		ConVar insBotQuotaConVar = FindConVar("ins_bot_quota");
-		insBotQuotaConVar.IntValue = _normalBotQuota;
-
-		ConVar mpIgnoreWinConditionsConVar = FindConVar("mp_ignore_win_conditions");
-		mpIgnoreWinConditionsConVar.IntValue = 1;
+		_insBotQuotaConVar.IntValue = _normalBotQuota;
+		_mpIgnoreWinConditionsConVar.IntValue = 1;
+		_svVoteIssueChangelevelAllowedConVar.IntValue = 1;
 
 		return;
 	}
@@ -404,18 +462,25 @@ public void SetGameState(int gameState)
 		return;
 	}
 	
-	if (_currentGameState == GAME_STATE_MATCH)
+	if (_currentGameState == GAME_STATE_MATCH_STARTING)
 	{
 		PrintToChatAll("\x07f5bf03[Tournament Helper] Match is starting...");
 
-		ConVar insBotQuotaConVar = FindConVar("ins_bot_quota");
-		_normalBotQuota = insBotQuotaConVar.IntValue;
-		insBotQuotaConVar.IntValue = 0;
+		_insBotQuotaConVar.IntValue = 0;
 
-		ConVar mpIgnoreWinConditionsConVar = FindConVar("mp_ignore_win_conditions");
-		mpIgnoreWinConditionsConVar.IntValue = 0;
+		return;
+	}
 
-		// Reload map?
+	if (_currentGameState == GAME_STATE_MATCH_IN_PROGRESS)
+	{
+		PrintToChatAll("\x07f5bf03[Tournament Helper] Match is now in progress...");
+
+		_mpIgnoreWinConditionsConVar.IntValue = 0;		
+		_svVoteIssueChangelevelAllowedConVar.IntValue = 0;
+
+		_team1GameWins = 0;
+		_team2GameWins = 0;
+
 		return;
 	}
 
@@ -498,8 +563,9 @@ public void Handle_VoteResults(
 		char item[64];
 		menu.GetItem(insurgentsVotedItemIndex, item, sizeof(item));
 		PrintToChatAll("\x07f5bf03[Tournament Helper] Game wins required to win match: %s.", item);
+		_gameWinsRequired = StringToInt(item);
 
-		SetGameState(GAME_STATE_MATCH);
+		SetGameState(GAME_STATE_MATCH_STARTING);
 	}
 	else
 	{
@@ -637,9 +703,6 @@ public int StartVote(int voteType, DataPack inputPack)
 	Menu menu = new Menu(Handle_VoteMenu);
 	menu.ExitButton = false;
 	menu.VoteResultCallback = Handle_VoteResults;
-	// menu.SetTitle("Change map to: %s?", map);
-	// menu.AddItem(map, "Yes");
-	// menu.AddItem("no", "No");
 
 	if (voteType == VOTE_TYPE_READY)
 	{

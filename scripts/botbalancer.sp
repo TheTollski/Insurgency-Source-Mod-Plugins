@@ -4,7 +4,7 @@
 #pragma semicolon 1
 #pragma newdecls required
 
-#define PLUGIN_VERSION "0.01"
+#define PLUGIN_VERSION "1.00"
 
 bool _balancingIsActive = false;
 int _botQuota = 0;
@@ -27,6 +27,9 @@ public void OnPluginStart()
 	CreateConVar("sm_botbalancer_version", PLUGIN_VERSION, "Standard plugin version ConVar. Please don't change me!", FCVAR_REPLICATED|FCVAR_NOTIFY|FCVAR_DONTRECORD);
 	
 	HookEvent("player_team", Event_PlayerTeam);
+
+	//RegConsoleCmd("sm_testoneplayer", Command_TestOnePlayer, "Acts as if one player is connected.");
+	//RegConsoleCmd("sm_testmoreplayers", Command_TestMorePlayers, "Acts as if more players are connected.");
 }
 
 public void OnClientPutInServer(int client)
@@ -74,6 +77,29 @@ public void OnClientDisconnect(int client)
 public void OnMapStart()
 {
 
+}
+
+// Commands
+public Action Command_TestOnePlayer(int client, int args)
+{
+	if (args != 0) {
+		ReplyToCommand(client, "[SM] Usage: sm_testoneplayer");
+		return Plugin_Handled;
+	}
+	
+	ExactlyOneRealPlayerIsInGame();
+	return Plugin_Handled;
+}
+
+public Action Command_TestMorePlayers(int client, int args)
+{
+	if (args != 0) {
+		ReplyToCommand(client, "[SM] Usage: sm_testmoreplayers");
+		return Plugin_Handled;
+	}
+	
+	MoreThanOneRealPlayerIsInGame();
+	return Plugin_Handled;
 }
 
 // Event Hooks
@@ -146,7 +172,7 @@ public void ExactlyOneRealPlayerIsInGame()
 			int playerTeamCount = GetTeamClientCount(_playerTeam);
 			if (playerTeamCount > 2)
 			{
-				KickXBotsFromTeam(_playerTeam, playerTeamCount - 1);
+				KickXBotsFromTeam(_playerTeam, playerTeamCount - 2);
 			}
 		}
 	}
@@ -176,11 +202,11 @@ public void MoreThanOneRealPlayerIsInGame()
 	
 	if (securityTeamPlayerCount > insurgentsTeamPlayerCount)
 	{
-		MoveXBotsFromTeamToTeam(2, 3, RoundToFloor(float((securityTeamPlayerCount - insurgentsTeamPlayerCount)) / float(2)));
+		MoveXBotsFromTeamToTeam(2, 3, RoundToCeil(float((securityTeamPlayerCount - insurgentsTeamPlayerCount)) / float(2)));
 	}
 	else if (securityTeamPlayerCount < insurgentsTeamPlayerCount)
 	{
-		MoveXBotsFromTeamToTeam(3, 2, RoundToFloor(float((securityTeamPlayerCount - insurgentsTeamPlayerCount)) / float(2)));
+		MoveXBotsFromTeamToTeam(3, 2, RoundToCeil(float((insurgentsTeamPlayerCount - securityTeamPlayerCount)) / float(2)));
 	}
 }
 

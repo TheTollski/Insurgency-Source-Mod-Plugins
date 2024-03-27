@@ -65,6 +65,7 @@ public void OnPluginStart()
 	RegAdminCmd("sm_endmatch", Command_EndMatch, ADMFLAG_GENERIC, "Ends match.");
 	RegAdminCmd("sm_printstate", Command_PrintState, ADMFLAG_GENERIC, "Prints state.");
 
+	RegConsoleCmd("sm_matchhistory", Command_MatchHistory, "Prints match history.");
 	RegConsoleCmd("sm_startvote", Command_StartVote, "Starts the voting process.");
 
 	ConVar mpTeamsUnbalanceLimitConVar = FindConVar("mp_teams_unbalance_limit");
@@ -215,7 +216,42 @@ public Action Command_Jointeam(int client, const char[] command, int args)
 	}
 
 	return Plugin_Continue;
-} 
+}
+
+public Action Command_MatchHistory(int client, int args)
+{
+	if (args > 1)
+	{
+		ReplyToCommand(client, "\x05[Tournament Helper] Usage: sm_matchhistory [Page]");
+		return Plugin_Handled;
+	}
+
+	char arg1[32];
+	if (args >= 1)
+	{
+		GetCmdArg(1, arg1, sizeof(arg1));
+	}
+	else
+	{
+		arg1 = "1";
+	}
+
+	if (args == 0)
+	{
+		ReplyToCommand(client, "[Tournament Helper] Using defaults: sm_matchhistory 1");
+	}
+
+	int pageSize = 10;
+	int page = StringToInt(arg1);
+	int offset = (page - 1) * pageSize;
+
+	ReplyToCommand(client, "\x05[Tournament Helper] Match history is being printed in the console.");
+
+	char queryString[256];
+	SQL_FormatQuery(_database, queryString, sizeof(queryString), "SELECT * FROM th_matches ORDER BY readyTimestamp DESC LIMIT %d OFFSET %d", pageSize, offset);
+	SQL_TQuery(_database, SqlQueryCallback_Command_MatchHistory1, queryString, client);
+	return Plugin_Handled;
+}
 
 public Action Command_StartVote(int client, int args)
 {
@@ -938,6 +974,41 @@ public void ConnectToDatabase()
 
 	SQL_TQuery(_database, SqlQueryCallback_Default, "CREATE TABLE IF NOT EXISTS th_matches (id INTEGER PRIMARY KEY AUTOINCREMENT, readyTimestamp INT(11) NOT NULL, startTimestamp INT(11) NULL, endTimestamp INT(11) NULL, team1GameWins INT(3) NOT NULL, team2GameWins INT(3) NOT NULL, matchWinningTeam INT(3) NOT NULL)");
 	SQL_TQuery(_database, SqlQueryCallback_Default, "CREATE TABLE IF NOT EXISTS th_players (authId VARCHAR(35), matchId INT(8) NOT NULL, team INT(3) NOT NULL, name VARCHAR(128) NOT NULL, UNIQUE(authId, matchId))");
+}
+
+public void SqlQueryCallback_Command_MatchHistory1(Handle database, Handle handle, const char[] sError, int client)
+{
+	if (!handle)
+	{
+		ThrowError("SQL query error in SqlQueryCallback_Command_MatchHistory1: %d, '%s'", client, sError);
+	}
+
+	if (SQL_GetRowCount(handle) == 0)
+	{
+		ReplyToCommand(client, "[Tournament Helper] No rows found for selected query.");
+		return;
+	}
+
+	ReplyToCommand(client, "ID      | ReadyTimestamp   | StartTimestamp   | EndTimestamp     | GameWins | MatchWinner");
+	while (SQL_FetchRow(handle))
+	{
+		int id = SQL_FetchInt(handle, 0);
+		int readyTimestamp = SQL_FetchInt(handle, 1);
+		int startTimestamp = SQL_FetchInt(handle, 2);
+		int endTimestamp = SQL_FetchInt(handle, 3);
+		int team1GameWins = SQL_FetchInt(handle, 4);
+		int team2GameWins = SQL_FetchInt(handle, 5);
+		int matchWinningTeam = SQL_FetchInt(handle, 6);
+
+		char readyDateTime[32]; 
+		FormatTime(readyDateTime, sizeof(readyDateTime), "%F %R", readyTimestamp);
+		char startDateTime[32]; 
+		FormatTime(startDateTime, sizeof(startDateTime), "%F %R", startTimestamp);
+		char endDateTime[32]; 
+		FormatTime(endDateTime, sizeof(endDateTime), "%F %R", endTimestamp);
+
+		ReplyToCommand(client, "%7d | %16s | %16s | %16s | %d-%d      | Team %d     ", id, readyDateTime, startDateTime, endDateTime, team1GameWins, team2GameWins, matchWinningTeam);
+	}
 }
 
 public void CreateMatchRecord()

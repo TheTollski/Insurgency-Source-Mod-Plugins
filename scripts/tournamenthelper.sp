@@ -35,6 +35,7 @@ int _lastMapChangeTimestamp = 0;
 int _matchId = 0;
 char _playerAuthIdInfo[MAXPLAYERS + 1][35];
 int _playerCount = 0;
+bool _playerIsRespawnable[MAXPLAYERS + 1] = { false, ...};
 int _playerTeamInfo[MAXPLAYERS + 1] = { -1, ... };
 bool _pluginIsChangingMpIgnoreWinConditions = false;
 bool _pluginIsChangingMpMaxRounds = false;
@@ -79,7 +80,7 @@ public void OnPluginStart()
 	AddCommandListener(Command_Jointeam, "jointeam");
 
 	HookEvent("game_end", Event_GameEnd);
-	HookEvent("player_death", Event_PlayerDeath);
+	// HookEvent("player_death", Event_PlayerDeath);
 	HookEvent("player_team", Event_PlayerTeam);
 
 	RegAdminCmd("sm_endmatch", Command_EndMatch, ADMFLAG_GENERIC, "Ends match.");
@@ -117,6 +118,11 @@ public void OnPluginStart()
 		if (IsClientInGame(i))
 		{
 			SDKHook(i, SDKHook_OnTakeDamage, OnTakeDamage);
+			int team = GetClientTeam(i);
+			if (team == 2 || team == 3)
+			{
+				_playerIsRespawnable[i] = true;
+			}
 		}
 	}
 
@@ -177,6 +183,7 @@ public void OnClientPostAdminCheck(int client)
 public void OnClientPutInServer(int client)
 {
 	SDKHook(client, SDKHook_OnTakeDamage, OnTakeDamage);
+	_playerIsRespawnable[client] = false;
 }
 
 public void OnConfigsExecuted()
@@ -428,51 +435,36 @@ public void Event_GameEnd(Event event, const char[] name, bool dontBroadcast)
 	}
 }
 
-public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast)
-{	
-	// int customkill = event.GetInt("customkill");
-	// int attackerTeam = event.GetInt("attackerteam");
-	// int victimTeam = event.GetInt("team");
-	// int attackerUserid = event.GetInt("attacker");
-	// int assister = event.GetInt("assister");
-	// int damagebits = event.GetInt("damagebits");
-	// int deathflags = event.GetInt("deathflags");
-	// int lives = event.GetInt("lives");
-	// int priority = event.GetInt("priority");
-	// char weapon[64];
-	// event.GetString("weapon", weapon, sizeof(weapon));
-	// int weaponid = event.GetInt("weaponid");
-	// float x = event.GetFloat("x");
-	// float y = event.GetFloat("y");
-	// float z = event.GetFloat("z");
-	// PrintToChatAll("\x05player_death. attackerUserid: %d, victimUserid: %d, attackerTeam: %d, victimTeam: %d, assister: %d, damagebits: %d, deathflags: %d, lives: %d, priority: %d, weapon: %s, weaponid: %d, x: %d, y: %d, z: %d",
-	// 	attackerClient, victimUserid, attackerTeam, victimTeam, assister, damagebits, deathflags, lives, priority, weapon, weaponid, x, y ,z);
+// public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast)
+// {	
+// 	// int customkill = event.GetInt("customkill");
+// 	// int attackerTeam = event.GetInt("attackerteam");
+// 	// int victimTeam = event.GetInt("team");
+// 	// int attackerUserid = event.GetInt("attacker");
+// 	// int assister = event.GetInt("assister");
+// 	// int damagebits = event.GetInt("damagebits");
+// 	// int deathflags = event.GetInt("deathflags");
+// 	// int lives = event.GetInt("lives");
+// 	// int priority = event.GetInt("priority");
+// 	// char weapon[64];
+// 	// event.GetString("weapon", weapon, sizeof(weapon));
+// 	// int weaponid = event.GetInt("weaponid");
+// 	// float x = event.GetFloat("x");
+// 	// float y = event.GetFloat("y");
+// 	// float z = event.GetFloat("z");
+// 	// PrintToChatAll("\x05player_death. attackerUserid: %d, victimUserid: %d, attackerTeam: %d, victimTeam: %d, assister: %d, damagebits: %d, deathflags: %d, lives: %d, priority: %d, weapon: %s, weaponid: %d, x: %d, y: %d, z: %d",
+// 	// 	attackerClient, victimUserid, attackerTeam, victimTeam, assister, damagebits, deathflags, lives, priority, weapon, weaponid, x, y ,z);
 
-	int victimUserid = event.GetInt("userid");
-	int victimClient = GetClientOfUserId(victimUserid);
+// 	int victimUserid = event.GetInt("userid");
+// 	int victimClient = GetClientOfUserId(victimUserid);
 
-	if (_currentGameState != GAME_STATE_MATCH_READY && _currentGameState != GAME_STATE_MATCH_IN_PROGRESS)
-	{
-		DataPack pack = new DataPack();
-		pack.WriteCell(victimClient);
-		CreateTimer(1.00, PlayerTeamEvent_Respawn_AfterDelay, pack);
-	}
-}
-
-public Action PlayerTeamEvent_Respawn_AfterDelay(Handle timer, DataPack inputPack)
-{
-	inputPack.Reset();
-	int client = inputPack.ReadCell();
-	CloseHandle(inputPack);
-
-	// TODO: Verify player is dead and has a "class".
-
-	PrintToChat(client, "[Tournament Helper] No match is in progress; respawning.");
-	
-	SDKCall(_forceRespawnHandle, client);
-
-	return Plugin_Stop;
-}
+// 	if (_currentGameState != GAME_STATE_MATCH_READY && _currentGameState != GAME_STATE_MATCH_IN_PROGRESS)
+// 	{
+// 		DataPack pack = new DataPack();
+// 		pack.WriteCell(victimClient);
+// 		CreateTimer(1.00, PlayerTeamEvent_Respawn_AfterDelay, pack);
+// 	}
+// }
 
 public void Event_PlayerTeam(Event event, const char[] name, bool dontBroadcast)
 {	
@@ -480,11 +472,21 @@ public void Event_PlayerTeam(Event event, const char[] name, bool dontBroadcast)
 	int team = event.GetInt("team");
 	// int oldteam = event.GetInt("oldteam");
 	
-	// PrintToChatAll("Player Team Event. userid: %d, team: %d, oldteam: %d.", userid, team, oldteam);
+	// PrintToChatAll("player_team. userid: %d, team: %d, oldteam: %d.", userid, team, oldteam);
 
 	int client = GetClientOfUserId(userid);
-	if (IsFakeClient(client) || _currentGameState == GAME_STATE_IDLE)
+	if (IsFakeClient(client))
 	{
+		return;
+	}
+
+	if (_currentGameState == GAME_STATE_IDLE)
+	{
+		_playerIsRespawnable[client] = false;
+
+		DataPack pack = new DataPack();
+		pack.WriteCell(client);
+		CreateTimer(10.0, PlayerTeamEvent_SetIsRespawnable_AfterDelay, pack);
 		return;
 	}
 
@@ -496,6 +498,17 @@ public void Event_PlayerTeam(Event event, const char[] name, bool dontBroadcast)
 		pack.WriteCell(allowedTeam);
 		CreateTimer(0.25, PlayerTeamEvent_ChangeClientTeam_AfterDelay, pack);
 	}
+}
+
+public Action PlayerTeamEvent_SetIsRespawnable_AfterDelay(Handle timer, DataPack inputPack)
+{
+	inputPack.Reset();
+	int client = inputPack.ReadCell();
+	CloseHandle(inputPack);
+
+	_playerIsRespawnable[client] = true;
+
+	return Plugin_Stop;
 }
 
 public Action PlayerTeamEvent_ChangeClientTeam_AfterDelay(Handle timer, DataPack inputPack)
@@ -665,6 +678,7 @@ public void SetGameState(int gameState)
 		ChangeMpIgnoreWinConditions(1);
 		_conVar_svVoteIssueChangelevelAllowed.IntValue = 1;
 
+		EnableRespawning();
 		ShowHintText("When both teams are ready, type: !startvote");
 		return;
 	}
@@ -722,38 +736,90 @@ public void SetGameState(int gameState)
 		SQL_FormatQuery(_database, queryString, sizeof(queryString), "UPDATE th_matches SET startTimestamp = %d WHERE id = %d", GetTime(), _matchId);
 		SQL_TQuery(_database, SqlQueryCallback_Default, queryString);
 
+		DisableRespawning();
+
 		return;
 	}
 
 	PrintToChatAll("\x07e50000[Tournament Helper] Unsupported game state '%d'. This should not happen!", _currentGameState);
 }
 
+// Respawn Functions
+
+Handle _respawnTimerHandle = null;
+
+public void DisableRespawning()
+{
+	if (_respawnTimerHandle != null)
+	{
+		KillTimer(_respawnTimerHandle);
+		_respawnTimerHandle = null;
+	}
+}
+
+public void EnableRespawning()
+{
+	if (_respawnTimerHandle != null)
+	{
+		PrintToServer("[Tournament Helper] Respawning is already enabled.");
+		return;
+	}
+
+	DataPack pack = new DataPack();
+	_respawnTimerHandle = CreateTimer(2.0, EnableRespawning_AfterDelay, pack, TIMER_REPEAT);
+}
+
+public Action EnableRespawning_AfterDelay(Handle timer, DataPack inputPack)
+{
+	// inputPack.Reset();
+	// Don't close the inputPack handle since it is run on repeat.
+
+	for (int i = 1; i < MaxClients + 1; i++)
+	{
+		if (IsClientInGame(i))
+		{
+			int team = GetClientTeam(i);
+			if ((team != 2 && team != 3) ||
+					IsPlayerAlive(i) ||
+					(!IsFakeClient(i) && !_playerIsRespawnable[i]))
+			{
+				continue;
+			}
+
+			PrintToChat(i, "[Tournament Helper] No match is in progress; respawning.");
+			SDKCall(_forceRespawnHandle, i);
+		}
+	}
+
+	return Plugin_Continue;
+}
+
 // Hint Text Functions
 
-Handle _hintTextHandle = null;
+Handle _hintTextTimerHandle = null;
 
 public void ClearHintText()
 {
-	if (_hintTextHandle != null)
+	if (_hintTextTimerHandle != null)
 	{
-		KillTimer(_hintTextHandle);
-		_hintTextHandle = null;
+		KillTimer(_hintTextTimerHandle);
+		_hintTextTimerHandle = null;
 	}
 }
 
 public void ShowHintText(const char[] hintText)
 {
-	if (_hintTextHandle != null)
+	if (_hintTextTimerHandle != null)
 	{
-		KillTimer(_hintTextHandle);
-		_hintTextHandle = null;
+		KillTimer(_hintTextTimerHandle);
+		_hintTextTimerHandle = null;
 	}
 
 	PrintHintTextToAll(hintText);
 
 	DataPack pack = new DataPack();
 	pack.WriteString(hintText);
-	_hintTextHandle = CreateTimer(5.0, ShowHintText_AfterDelay, pack, TIMER_REPEAT);
+	_hintTextTimerHandle = CreateTimer(5.0, ShowHintText_AfterDelay, pack, TIMER_REPEAT);
 }
 
 public Action ShowHintText_AfterDelay(Handle timer, DataPack inputPack)
@@ -825,7 +891,7 @@ public void Handle_VoteResults(
 	{
 		int votedItemIndex = Handle_VoteResults_Helper(menu, num_clients, client_info, VOTE_TYPE_GAMEWINCOUNT);
 		if (votedItemIndex < 0) {
-			return;
+			return; // Handle_VoteResults_Helper handles restarting the vote on this option.
 		}
 
 		char item[64];
@@ -840,7 +906,7 @@ public void Handle_VoteResults(
 	{
 		int votedItemIndex = Handle_VoteResults_Helper(menu, num_clients, client_info, VOTE_TYPE_ROUNDWINCOUNT);
 		if (votedItemIndex < 0) {
-			return;
+			return; // Handle_VoteResults_Helper handles restarting the vote on this option.
 		}
 
 		char item[64];

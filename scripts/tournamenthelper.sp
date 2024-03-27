@@ -11,9 +11,11 @@ const int GAME_STATE_VOTING = 2;
 const int GAME_STATE_MATCH = 3;
 
 bool _currentGameState = GAME_STATE_NOTHING;
-int _currentVoteType = 0; // 1 = Ready
+int _currentVoteType = -1; // 1 = Ready
+Handle _forceRespawnHandle = INVALID_HANDLE;
+int _normalBotQuota = -1;
 char _playerAuthIdInfo[MAXPLAYERS + 1][35];
-int _playerCount = 0;
+int _playerCount = -1;
 int _playerTeamInfo[MAXPLAYERS + 1] = { -1, ... };
 
 // TODO:
@@ -42,11 +44,19 @@ public void OnPluginStart()
 {
 	CreateConVar("sm_tournamenthelper_version", PLUGIN_VERSION, "Standard plugin version ConVar. Please don't change me!", FCVAR_REPLICATED|FCVAR_NOTIFY|FCVAR_DONTRECORD);
 
-	RegConsoleCmd("sm_startvote", Command_StartVote, "Starts the voting process.");
-
 	AddCommandListener(Command_Jointeam, "jointeam");
 
+	HookEvent("player_death", Event_PlayerDeath);
 	HookEvent("player_team", Event_PlayerTeam);
+
+	RegAdminCmd("sm_endmatch", Command_EndMatch, ADMFLAG_GENERIC, "Ends match.");
+
+	RegConsoleCmd("sm_startvote", Command_StartVote, "Starts the voting process.");
+
+	GameData gameData = LoadGameConfigFile("plugin.respawn");
+	StartPrepSDKCall(SDKCall_Player);
+	PrepSDKCall_SetFromConf(gameData, SDKConf_Signature, "ForceRespawn");
+	_forceRespawnHandle = EndPrepSDKCall();
 }
 
 public void OnClientDisconnect(int client)
@@ -80,16 +90,48 @@ public void OnClientDisconnect(int client)
 
 public void OnClientPostAdminCheck(int client)
 {
-	if (IsFakeClient(client))
+	if (IsFakeClient(client) || _currentGameState == GAME_STATE_NOTHING)
 	{
 		return;
 	}
 	
+	int playersConnected = 0;
+	for (int i = 1; i < MaxClients + 1; i++)
+	{
+		if (IsClientInGame(i) && !IsFakeClient(i))
+		{
+			playersConnected++;
+		}
+	}
+
+	if (playersConnected == 1) 
+	{
+		PrintToServer("A player connected. Ensuring game state set to nothing.");
+		SetGameState(GAME_STATE_NOTHING);
+	}
 }
 
 public void OnMapStart()
 {
 
+}
+
+public Action Command_EndMatch(int client, int args)
+{
+	if (args > 0) {
+		ReplyToCommand(client, "\x07e50000[Tournament Helper] Usage: sm_endmatch");
+		return Plugin_Handled;
+	}
+
+	if (_currentGameState != GAME_STATE_MATCH)
+	{
+		ReplyToCommand(client, "\x07e50000[Tournament Helper] Failed to end match; no match is in progress.");
+		return Plugin_Handled;
+	}
+
+	ReplyToCommand(client, "\x05[Tournament Helper] Ending match.");
+	SetGameState(GAME_STATE_NOTHING);
+	return Plugin_Handled;
 }
 
 public Action Command_Jointeam(int client, const char[] command, int args)
@@ -164,6 +206,52 @@ public Action Command_StartVote(int client, int args)
 //
 // Hooks
 //
+
+public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast)
+{
+	int customkill = event.GetInt("customkill");
+
+	int attackerTeam = event.GetInt("attackerteam");
+	int victimTeam = event.GetInt("team");
+	
+	int attackerUserid = event.GetInt("attacker");
+	int victimUserid = event.GetInt("userid");
+
+	int attackerClient = GetClientOfUserId(attackerUserid);
+	int victimClient = GetClientOfUserId(victimUserid);
+
+	// int assister = event.GetInt("assister");
+	// int damagebits = event.GetInt("damagebits");
+	// int deathflags = event.GetInt("deathflags");
+	// int lives = event.GetInt("lives");
+	// int priority = event.GetInt("priority");
+	// char weapon[64];
+	// event.GetString("weapon", weapon, sizeof(weapon));
+	// int weaponid = event.GetInt("weaponid");
+	// float x = event.GetFloat("x");
+	// float y = event.GetFloat("y");
+	// float z = event.GetFloat("z");
+	// PrintToChatAll("\x05player_death. attackerUserid: %d, victimUserid: %d, attackerTeam: %d, victimTeam: %d, assister: %d, damagebits: %d, deathflags: %d, lives: %d, priority: %d, weapon: %s, weaponid: %d, x: %d, y: %d, z: %d",
+	// 	attackerClient, victimUserid, attackerTeam, victimTeam, assister, damagebits, deathflags, lives, priority, weapon, weaponid, x, y ,z);
+
+	if (_currentGameState != GAME_STATE_MATCH)
+	{
+		DataPack pack = new DataPack();
+		pack.WriteCell(victimClient);
+		CreateTimer(3.00, PlayerTeamEvent_Respawn_AfterDelay, pack);
+	}
+}
+
+public Action PlayerTeamEvent_Respawn_AfterDelay(Handle timer, DataPack inputPack)
+{
+	inputPack.Reset();
+	int client = inputPack.ReadCell();
+	CloseHandle(inputPack);
+
+	PrintToChat(client, "[Tournament Helper] No match is in progress; respawning.");
+	
+	SDKCall(_forceRespawnHandle, client);
+}
 
 public void Event_PlayerTeam(Event event, const char[] name, bool dontBroadcast)
 {	
@@ -251,9 +339,16 @@ public void SetGameState(int gameState)
 		PrintToChatAll("\x07e50000[Tournament Helper] Cannot set game state to 'MatchInProgress'. This should not happen!");
 		return;
 	}
+	if (gameState == GAME_STATE_VOTING && _currentGameState == GAME_STATE_MATCH)
+	{
+		PrintToChatAll("\x07e50000[Tournament Helper] Cannot set game state to 'VotingInProgress'. This should not happen!");
+		return;
+	}
 
 	int previousGameState = _currentGameState;
 	_currentGameState = gameState;
+
+	PrintToServer("[Tournament Helper] Setting game state to %d.", _currentGameState);
 
 	if (_currentGameState == GAME_STATE_NOTHING)
 	{
@@ -265,6 +360,12 @@ public void SetGameState(int gameState)
 		{
 			PrintToChatAll("\x07f5bf03[Tournament Helper] Voting has been cancelled. Teams are now unlocked.");
 		}
+
+		ConVar insBotQuotaConVar = FindConVar("ins_bot_quota");
+		insBotQuotaConVar.IntValue = _normalBotQuota;
+
+		ConVar mpIgnoreWinConditionsConVar = FindConVar("mp_ignore_win_conditions");
+		mpIgnoreWinConditionsConVar.IntValue = 1;
 
 		return;
 	}
@@ -297,6 +398,14 @@ public void SetGameState(int gameState)
 	if (_currentGameState == GAME_STATE_MATCH)
 	{
 		PrintToChatAll("\x07f5bf03[Tournament Helper] Match is starting...");
+
+		ConVar insBotQuotaConVar = FindConVar("ins_bot_quota");
+		_normalBotQuota = insBotQuotaConVar.IntValue;
+		insBotQuotaConVar.IntValue = 0;
+
+		ConVar mpIgnoreWinConditionsConVar = FindConVar("mp_ignore_win_conditions");
+		mpIgnoreWinConditionsConVar.IntValue = 0;
+
 		// Reload map?
 		return;
 	}

@@ -8,6 +8,7 @@
 
 StringMap _authIdDisconnectTimestampMap;
 Database _database;
+int _controlPointsThatPlayersAreTouching[MAXPLAYERS + 1] = { -1, ... };
 int _lastActiveTimeSavedTimestamps[MAXPLAYERS + 1] = { 0, ... };
 int _lastConnectedTimeSavedTimestamps[MAXPLAYERS + 1] = { 0, ... };
 
@@ -28,6 +29,10 @@ public void OnPluginStart()
 {
 	CreateConVar("sm_simpleplayerstats_version", PLUGIN_VERSION, "Standard plugin version ConVar. Please don't change me!", FCVAR_REPLICATED|FCVAR_NOTIFY|FCVAR_DONTRECORD);
 	
+	HookEvent("controlpoint_captured", Event_ControlpointCaptured);
+	HookEvent("controlpoint_endtouch", Event_ControlpointEndtouch);
+	HookEvent("controlpoint_starttouch", Event_ControlpointStartTouch);
+	HookEvent("round_start", Event_RoundStart);
 	HookEvent("player_death", Event_PlayerDeath);
 	HookEvent("player_team", Event_PlayerTeam);
 
@@ -53,6 +58,7 @@ public void OnClientDisconnect(int client)
 	int timestamp = GetTime();
 
 	_authIdDisconnectTimestampMap.SetValue(authId, timestamp, true);
+	_controlPointsThatPlayersAreTouching[client] = -1;
 	_lastActiveTimeSavedTimestamps[client] = 0;
 	_lastConnectedTimeSavedTimestamps[client] = 0;
 }
@@ -96,6 +102,76 @@ public Action Command_MyStats(int client, int args)
 // Hooks
 //
 
+public void Event_ControlpointCaptured(Event event, const char[] name, bool dontBroadcast)
+{
+	int cp = event.GetInt("cp");
+	//char cappers[256];
+	//event.GetString("cappers", cappers, sizeof(cappers));
+	//int oldteam = event.GetInt("oldteam");
+	//int priority = event.GetInt("priority");
+	int team = event.GetInt("team");
+	//PrintToChatAll("controlpoint_captured. cp: %d, cappers: %s, oldteam: %d, priority: %d, team: %d", cp, cappers, oldteam, priority, team);
+
+	for (int i = 1; i < MaxClients + 1; i++)
+	{
+		if (_controlPointsThatPlayersAreTouching[i] == cp && team == GetClientTeam(i) && !IsFakeClient(i))
+		{
+			char playerName[64];
+			GetClientName(i, playerName, sizeof(playerName));
+			PrintToConsoleAll("Debug: %s helped capture a control point.", playerName);
+
+			char authId[35];
+			GetClientAuthId(i, AuthId_Steam2, authId, sizeof(authId));
+
+			char queryString[256];
+			SQL_FormatQuery(_database, queryString, sizeof(queryString), "UPDATE sps_players SET ControlPointsCaptured = ControlPointsCaptured + 1 WHERE AuthId = '%s'", authId);
+			SQL_TQuery(_database, SqlQueryCallback_Default, queryString);
+		}
+	}
+}
+
+public void Event_ControlpointEndtouch(Event event, const char[] name, bool dontBroadcast)
+{
+	//int area = event.GetInt("area");
+	//int owner = event.GetInt("owner");
+	int playerClient = event.GetInt("player");
+	//int team = event.GetInt("team");
+	//PrintToChatAll("controlpoint_endtouch. area: %d, owner: %d, player: %d, team: %d", area, owner, playerClient, team);
+
+	if (IsFakeClient(playerClient))
+	{
+		return;
+	}
+	
+	_controlPointsThatPlayersAreTouching[playerClient] = -1;
+}
+
+public void Event_ControlpointStartTouch(Event event, const char[] name, bool dontBroadcast)
+{
+	int area = event.GetInt("area");
+	//int obj = event.GetInt("object");
+	//int owner = event.GetInt("owner");
+	int playerClient = event.GetInt("player");
+	//int team = event.GetInt("team");
+	//int type = event.GetInt("type");
+	//PrintToChatAll("controlpoint_starttouch. area: %d, object: %d, owner: %d, player: %d, team: %d, type: %d", area, obj, owner, playerClient, team, type);
+
+	if (IsFakeClient(playerClient))
+	{
+		return;
+	}
+
+	_controlPointsThatPlayersAreTouching[playerClient] = area;
+}
+
+public void Event_RoundStart(Event event, const char[] name, bool dontBroadcast)
+{
+	for (int i = 1; i < MaxClients + 1; i++)
+	{
+		_controlPointsThatPlayersAreTouching[i] = -1;
+	}
+}
+
 public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast)
 {
 	int customkill = event.GetInt("customkill");
@@ -124,7 +200,7 @@ public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast
 	// float x = event.GetFloat("x");
 	// float y = event.GetFloat("y");
 	// float z = event.GetFloat("z");
-	// PrintToChatAll("attackerUserid: %d, victimUserid: %d, attackerTeam: %d, victimTeam: %d, assister: %d, damagebits: %d, deathflags: %d, lives: %d, priority: %d, weapon: %s, weaponid: %d, x: %d, y: %d, z: %d",
+	// PrintToChatAll("player_death. attackerUserid: %d, victimUserid: %d, attackerTeam: %d, victimTeam: %d, assister: %d, damagebits: %d, deathflags: %d, lives: %d, priority: %d, weapon: %s, weaponid: %d, x: %d, y: %d, z: %d",
 	// 	attackerClient, victimUserid, attackerTeam, victimTeam, assister, damagebits, deathflags, lives, priority, weapon, weaponid, x, y ,z);
 
 	bool victimIsBot = IsFakeClient(victimClient);
@@ -269,7 +345,7 @@ public void ConnectToDatabase()
 	SQL_TQuery(
 		_database,
 		SqlQueryCallback_Default,
-		"CREATE TABLE IF NOT EXISTS sps_players (AuthId VARCHAR(35) NOT NULL, PlayerName VARCHAR(64) NOT NULL, FirstConnectionTimestamp INT(11) NOT NULL, LastConnectionTimestamp INT(11) NOT NULL, ConnectionCount INT(7) NOT NULL, ConnectedTime INT(9) NOT NULL, ActiveTime INT(9) NOT NULL, EnemyBotKills INT(8) NOT NULL, EnemyPlayerKills INT(8) NOT NULL, TeamKills INT(8) NOT NULL, DeathsToEnemyBots INT(8) NOT NULL, DeathsToEnemyPlayers INT(8) NOT NULL, DeathsToSelf INT(8) NOT NULL, DeathsToTeam INT(8) NOT NULL, DeathsToOther INT(8) NOT NULL, UNIQUE(AuthId))");
+		"CREATE TABLE IF NOT EXISTS sps_players (AuthId VARCHAR(35) NOT NULL, PlayerName VARCHAR(64) NOT NULL, FirstConnectionTimestamp INT(11) NOT NULL, LastConnectionTimestamp INT(11) NOT NULL, ConnectionCount INT(7) NOT NULL, ConnectedTime INT(9) NOT NULL, ActiveTime INT(9) NOT NULL, EnemyBotKills INT(8) NOT NULL, EnemyPlayerKills INT(8) NOT NULL, TeamKills INT(8) NOT NULL, DeathsToEnemyBots INT(8) NOT NULL, DeathsToEnemyPlayers INT(8) NOT NULL, DeathsToSelf INT(8) NOT NULL, DeathsToTeam INT(8) NOT NULL, DeathsToOther INT(8) NOT NULL, ControlPointsCaptured INT(8), UNIQUE(AuthId))");
 }
 
 public void SqlQueryCallback_Command_MyStats1(Handle database, Handle handle, const char[] sError, int data)
@@ -306,13 +382,15 @@ public void SqlQueryCallback_Command_MyStats1(Handle database, Handle handle, co
 	int deathsToSelf = SQL_FetchInt(handle, 12);
 	int deathsToTeam = SQL_FetchInt(handle, 13);
 	int deathsToOther = SQL_FetchInt(handle, 14);
+	int controlPointsCaptured = SQL_FetchInt(handle, 15);
 
 	PrintToConsole(
 		client,
-		"[Simple Player Stats] Your Stats -- ConnectionCount: %d - ConnectedTime: %dh%dm - ActiveTime: %dh%dm - TotalKills: %d (%d enemy bots, %d enemy players, %d team) - TotalDeaths: %d (%d enemy bots, %d enemy players, %d self, %d team, %d other)",
+		"[Simple Player Stats] Your Stats -- ConnectionCount: %d - ConnectedTime: %dh%dm - ActiveTime: %dh%dm - TotalKills: %d (%d enemy bots, %d enemy players, %d team) - TotalDeaths: %d (%d enemy bots, %d enemy players, %d self, %d team, %d other) - ControlPointsCaptured: %d",
 		connectionCount, connectedTime / 3600, connectedTime % 3600 / 60, activeTime / 3600, activeTime % 3600 / 60,
 		enemyBotKills + enemyPlayerKills + teamKills, enemyBotKills, enemyPlayerKills, teamKills,
-		deathsToEnemyBots + deathsToEnemyPlayers + deathsToSelf + deathsToTeam + deathsToOther, deathsToEnemyBots, deathsToEnemyPlayers, deathsToSelf, deathsToTeam, deathsToOther);
+		deathsToEnemyBots + deathsToEnemyPlayers + deathsToSelf + deathsToTeam + deathsToOther, deathsToEnemyBots, deathsToEnemyPlayers, deathsToSelf, deathsToTeam, deathsToOther,
+		controlPointsCaptured);
 }
 
 public void SqlQueryCallback_Default(Handle database, Handle handle, const char[] sError, int data)
@@ -357,8 +435,8 @@ public void SqlQueryCallback_OnClientPostAdminCheck1(Handle database, Handle han
 			_database,
 			queryString,
 			sizeof(queryString),
-			"INSERT INTO sps_players (AuthId, PlayerName, FirstConnectionTimestamp, LastConnectionTimestamp, ConnectionCount, ConnectedTime, ActiveTime, EnemyBotKills, EnemyPlayerKills, TeamKills, DeathsToEnemyBots, DeathsToEnemyPlayers, DeathsToSelf, DeathsToTeam, DeathsToOther) VALUES ('%s', '%s', %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d)",
-			authId, name, timestamp, timestamp, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+			"INSERT INTO sps_players (AuthId, PlayerName, FirstConnectionTimestamp, LastConnectionTimestamp, ConnectionCount, ConnectedTime, ActiveTime, EnemyBotKills, EnemyPlayerKills, TeamKills, DeathsToEnemyBots, DeathsToEnemyPlayers, DeathsToSelf, DeathsToTeam, DeathsToOther, ControlPointsCaptured) VALUES ('%s', '%s', %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d)",
+			authId, name, timestamp, timestamp, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 		SQL_TQuery(_database, SqlQueryCallback_Default, queryString);
 
 		PrintToChat(client, "Welcome %s, this is your first time here!", name);

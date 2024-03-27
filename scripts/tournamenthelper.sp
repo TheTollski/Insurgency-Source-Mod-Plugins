@@ -10,12 +10,16 @@ const int GAME_STATE_NOTHING = 1;
 const int GAME_STATE_VOTING = 2;
 const int GAME_STATE_MATCH = 3;
 
-bool _currentGameState = GAME_STATE_NOTHING;
-int _currentVoteType = -1; // 1 = Ready
+const int VOTE_TYPE_NONE = 0;
+const int VOTE_TYPE_READY = 1;
+const int VOTE_TYPE_WINCOUNT = 2;
+
+int _currentGameState = GAME_STATE_NOTHING;
+int _currentVoteType = VOTE_TYPE_NONE;
 Handle _forceRespawnHandle = INVALID_HANDLE;
-int _normalBotQuota = -1;
+int _normalBotQuota = 0;
 char _playerAuthIdInfo[MAXPLAYERS + 1][35];
-int _playerCount = -1;
+int _playerCount = 0;
 int _playerTeamInfo[MAXPLAYERS + 1] = { -1, ... };
 
 // TODO:
@@ -26,6 +30,7 @@ int _playerTeamInfo[MAXPLAYERS + 1] = { -1, ... };
 // Enforce no team swapping while match in progress
 // Point system?
 // Unlock server if empty or game is too long.
+// Pause playerstats while match not in progress.
 
 public Plugin myinfo =
 {
@@ -53,7 +58,15 @@ public void OnPluginStart()
 
 	RegConsoleCmd("sm_startvote", Command_StartVote, "Starts the voting process.");
 
+	ConVar mpTeamsUnbalanceLimitConVar = FindConVar("mp_teams_unbalance_limit");
+	mpTeamsUnbalanceLimitConVar.IntValue = 0;
+
+	// Respawn logic taken from https://github.com/jaredballou/insurgency-sourcemod/blob/master/scripting/disabled/respawn.sp
 	GameData gameData = LoadGameConfigFile("plugin.respawn");
+	if (gameData == INVALID_HANDLE) {
+		SetFailState("[Tournament Helper] Fatal Error: Missing File \"plugin.respawn\"!");
+	}
+
 	StartPrepSDKCall(SDKCall_Player);
 	PrepSDKCall_SetFromConf(gameData, SDKConf_Signature, "ForceRespawn");
 	_forceRespawnHandle = EndPrepSDKCall();
@@ -181,24 +194,16 @@ public Action Command_StartVote(int client, int args)
 		// return Plugin_Handled;
 	}
 
-	ReplyToCommand(client, "\x05[Tournament Helper] Initiating vote.");
-
-	char requestorName[MAX_NAME_LENGTH];
-	GetClientName(client, requestorName, sizeof(requestorName));
-
-	SetGameState(GAME_STATE_VOTING);
-	_currentVoteType = 1;
-
-	Menu menu = new Menu(Handle_VoteMenu);
-	menu.VoteResultCallback = Handle_VoteResults;
-	menu.SetTitle("'%s' has initiated a vote to start the match. Is your team ready?", requestorName);
-	// menu.SetTitle("Change map to: %s?", map);
-	// menu.AddItem(map, "Yes");
-	// menu.AddItem("no", "No");
-	menu.AddItem("yes", "Yes");
-	menu.AddItem("no", "No");
-	menu.ExitButton = false;
-	menu.DisplayVoteToAll(10);
+	DataPack pack = new DataPack();
+	pack.WriteCell(client);
+	if (StartVote(1, pack) == 0)
+	{
+		ReplyToCommand(client, "\x05[Tournament Helper] Vote started.");
+	}
+	else
+	{
+		ReplyToCommand(client, "\x07e50000[Tournament Helper] Failed to start vote due to an unexpected error.");
+	}
 
 	return Plugin_Handled;
 }
@@ -208,18 +213,11 @@ public Action Command_StartVote(int client, int args)
 //
 
 public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast)
-{
-	int customkill = event.GetInt("customkill");
-
-	int attackerTeam = event.GetInt("attackerteam");
-	int victimTeam = event.GetInt("team");
-	
-	int attackerUserid = event.GetInt("attacker");
-	int victimUserid = event.GetInt("userid");
-
-	int attackerClient = GetClientOfUserId(attackerUserid);
-	int victimClient = GetClientOfUserId(victimUserid);
-
+{	
+	// int customkill = event.GetInt("customkill");
+	// int attackerTeam = event.GetInt("attackerteam");
+	// int victimTeam = event.GetInt("team");
+	// int attackerUserid = event.GetInt("attacker");
 	// int assister = event.GetInt("assister");
 	// int damagebits = event.GetInt("damagebits");
 	// int deathflags = event.GetInt("deathflags");
@@ -233,6 +231,9 @@ public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast
 	// float z = event.GetFloat("z");
 	// PrintToChatAll("\x05player_death. attackerUserid: %d, victimUserid: %d, attackerTeam: %d, victimTeam: %d, assister: %d, damagebits: %d, deathflags: %d, lives: %d, priority: %d, weapon: %s, weaponid: %d, x: %d, y: %d, z: %d",
 	// 	attackerClient, victimUserid, attackerTeam, victimTeam, assister, damagebits, deathflags, lives, priority, weapon, weaponid, x, y ,z);
+
+	int victimUserid = event.GetInt("userid");
+	int victimClient = GetClientOfUserId(victimUserid);
 
 	if (_currentGameState != GAME_STATE_MATCH)
 	{
@@ -248,9 +249,13 @@ public Action PlayerTeamEvent_Respawn_AfterDelay(Handle timer, DataPack inputPac
 	int client = inputPack.ReadCell();
 	CloseHandle(inputPack);
 
+	// TODO: Verify player is dead and has a "class".
+
 	PrintToChat(client, "[Tournament Helper] No match is in progress; respawning.");
 	
 	SDKCall(_forceRespawnHandle, client);
+
+	return Plugin_Stop;
 }
 
 public void Event_PlayerTeam(Event event, const char[] name, bool dontBroadcast)
@@ -286,6 +291,8 @@ public Action PlayerTeamEvent_ChangeClientTeam_AfterDelay(Handle timer, DataPack
 
 	PrintToChat(client, "\x07e50000[Tournament Helper] You are being moved to your designated team, the teams are locked.");
 	ChangeClientTeam(client, allowedTeam);
+
+	return Plugin_Stop;
 }
 
 //
@@ -361,6 +368,8 @@ public void SetGameState(int gameState)
 			PrintToChatAll("\x07f5bf03[Tournament Helper] Voting has been cancelled. Teams are now unlocked.");
 		}
 
+		_currentVoteType = VOTE_TYPE_NONE;
+
 		ConVar insBotQuotaConVar = FindConVar("ins_bot_quota");
 		insBotQuotaConVar.IntValue = _normalBotQuota;
 
@@ -419,11 +428,12 @@ public int Handle_VoteMenu(Menu menu, MenuAction action, int param1, int param2)
 {
 	if (action == MenuAction_End)
 	{
-		/* This is called after VoteEnd */
+		// This is called after VoteEnd.
 		delete menu;
 	}
 	else if (action == MenuAction_VoteCancel)
 	{
+		PrintToChatAll("[Tournament Helper] No votes were cast; cancelling voting.");
 		SetGameState(GAME_STATE_NOTHING);
 	}
 }
@@ -436,33 +446,7 @@ public void Handle_VoteResults(
   int num_items, 
   const int[][] item_info)
 {
-	/* See if there were multiple winners */
-	// int winner = 0;
-	// if (num_items > 1 && (item_info[0][VOTEINFO_ITEM_VOTES] == item_info[1][VOTEINFO_ITEM_VOTES]))
-	// {
-	//   winner = GetRandomInt(0, 1);
-	// }
-
-	// char map[64];
-	// menu.GetItem(item_info[winner][VOTEINFO_ITEM_INDEX], map, sizeof(map));
-	// ServerCommand("changelevel %s", map);
-
-
-	// PrintToChatAll("[Tournament Helper] Handle_VoteResults. num_votes %d, num_clients %d, num_items %d", num_votes, num_clients, num_items);
-
-	// for (int i = 0; i < num_clients; i++)
-	// {
-	// 	PrintToChatAll("[Tournament Helper] client[%d], index %d, item %d", i, client_info[i][VOTEINFO_CLIENT_INDEX], client_info[i][VOTEINFO_CLIENT_ITEM]);
-	// }
-
-	// for (int i = 0; i < num_items; i++)
-	// {
-	// 	char item[64];
-	// 	menu.GetItem(item_info[i][VOTEINFO_ITEM_INDEX], item, sizeof(item));
-	// 	PrintToChatAll("[Tournament Helper] item[%d], index %d, votes %d, value %s", i, item_info[i][VOTEINFO_ITEM_INDEX], item_info[i][VOTEINFO_ITEM_VOTES], item);
-	// }
-
-	if (_currentVoteType == 1) // Ready Vote
+	if (_currentVoteType == VOTE_TYPE_READY)
 	{
 		int yesItemIndex = GetMenuItemIndex(menu, num_items, item_info, "yes");
 
@@ -483,6 +467,37 @@ public void Handle_VoteResults(
 				return;
 			}
 		}
+
+		PrintToChatAll("\x07f5bf03[Tournament Helper] All players are ready.");
+		StartVote(VOTE_TYPE_WINCOUNT, null);
+	}
+	else if (_currentVoteType == VOTE_TYPE_WINCOUNT)
+	{
+		int insurgentsVotedItemIndex = GetTeamVoteItemIndex(menu, num_clients, client_info, 3);
+		int securityVotedItemIndex = GetTeamVoteItemIndex(menu, num_clients, client_info, 2);
+		if (insurgentsVotedItemIndex < 0 || securityVotedItemIndex < 0 || insurgentsVotedItemIndex != securityVotedItemIndex)
+		{
+			if (insurgentsVotedItemIndex < 0)
+			{
+				PrintToChatAll("[Tournament Helper] Insurgents team did not have a majority vote on any option.");	
+			}
+			if (securityVotedItemIndex < 0)
+			{
+				PrintToChatAll("[Tournament Helper] Security team did not have a majority vote on any option.");	
+			}
+
+			if (insurgentsVotedItemIndex >= 0 && securityVotedItemIndex >= 0)
+			{
+				PrintToChatAll("[Tournament Helper] Teams did not agree on an option.");	
+			}
+
+			StartVote(VOTE_TYPE_WINCOUNT, null);
+			return;
+		}
+
+		char item[64];
+		menu.GetItem(insurgentsVotedItemIndex, item, sizeof(item));
+		PrintToChatAll("\x07f5bf03[Tournament Helper] Game wins required to win match: %s.", item);
 
 		SetGameState(GAME_STATE_MATCH);
 	}
@@ -536,4 +551,180 @@ public int GetPlayerVoteItemIndex(
 	}
 
 	return -2;
+}
+
+public int GetTeamVoteItemIndex(
+	Menu menu,
+	int num_clients, 
+  const int[][] client_info,
+	int team)
+{
+	int maxItemIndex = -1;
+	for (int i = 0; i < num_clients; i++)
+	{
+		if (client_info[i][VOTEINFO_CLIENT_ITEM] > maxItemIndex)
+		{
+			maxItemIndex = client_info[i][VOTEINFO_CLIENT_ITEM];
+		}
+	}
+
+	if (maxItemIndex < 0) {
+		return -3;
+	}
+
+	int teamVoteCountTotal = 0;
+	int[] teamVoteCountByItem = new int[maxItemIndex + 1];
+	for (int i = 0; i < _playerCount; i++)
+	{
+		if (_playerTeamInfo[i] != team)
+		{
+			continue;
+		}
+
+		int playerVoteItemIndex = GetPlayerVoteItemIndex(menu, num_clients, client_info, _playerAuthIdInfo[i]);
+		teamVoteCountByItem[playerVoteItemIndex]++;
+		teamVoteCountTotal++;
+	}
+
+	for (int i = 0; i < maxItemIndex + 1; i++)
+	{
+		if ((teamVoteCountByItem[i] / float(teamVoteCountTotal)) > 0.5)
+		{
+			return i;
+		}
+	}
+
+	return -team;
+}
+
+int _countdownTimeRemaining = 0;
+Handle _countdownTimeRemainingHandle = null;
+public void ShowCountdownTimer(int seconds)
+{
+	if (_countdownTimeRemainingHandle != null)
+	{
+		KillTimer(_countdownTimeRemainingHandle);
+	}
+
+	PrintCenterTextAll("Time remaining for current vote: %ds", seconds);
+
+	_countdownTimeRemaining = seconds - 1;
+	_countdownTimeRemainingHandle = CreateTimer(1.0, ShowCountdownTimer_AfterDelay, _, TIMER_REPEAT);
+}
+
+public Action ShowCountdownTimer_AfterDelay(Handle timer)
+{
+	if (_countdownTimeRemaining <= 0)
+	{
+		_countdownTimeRemainingHandle = null;
+		return Plugin_Stop;
+	}
+
+	PrintCenterTextAll("Time remaining for current vote: %ds", _countdownTimeRemaining);
+
+	_countdownTimeRemaining--;
+	return Plugin_Continue;
+}
+
+public int StartVote(int voteType, DataPack inputPack)
+{
+	if (_currentVoteType != voteType - 1 && _currentVoteType != voteType)
+	{
+		PrintToChatAll("\x07e50000[Tournament Helper] Cannot start vote type %d when current vote type is %d.", voteType, _currentVoteType);
+		return 1;
+	}
+
+	Menu menu = new Menu(Handle_VoteMenu);
+	menu.ExitButton = false;
+	menu.VoteResultCallback = Handle_VoteResults;
+	// menu.SetTitle("Change map to: %s?", map);
+	// menu.AddItem(map, "Yes");
+	// menu.AddItem("no", "No");
+
+	if (voteType == VOTE_TYPE_READY)
+	{
+		StartVoteHelper_PopulateReadyMenu(menu, inputPack);
+		SetGameState(GAME_STATE_VOTING);
+	}
+	else if (voteType == VOTE_TYPE_WINCOUNT)
+	{
+		StartVoteHelper_PopulateWinCountMenu(menu);
+	}
+	else
+	{
+		PrintToChatAll("\x07e50000[Tournament Helper] Unsupported vote type '%d'.", voteType);
+		return 1;
+	}
+	
+	_currentVoteType = voteType;
+
+	ShowCountdownTimer(30);
+	menu.DisplayVoteToAll(30);
+
+	return 0;
+}
+
+Handle _mapArray = null;
+int mapSerial = -1;
+
+public int StartVoteHelper_PopulateWinCountMenu(Menu menu)
+{
+	menu.SetTitle("Select amount of game wins required to win the match.");
+	menu.AddItem("1", "Best 1 out of 1 maps.");
+	menu.AddItem("2", "Best 2 out of 3 maps.");
+}
+
+public int StartVoteHelper_PopulateMapMenu(Menu menu)
+{
+	// This will populate the menu with all the maps in the map cycle, but it has no data on gamemodes.
+	// Until voting on game modes is figured out, it's probably best to just leverage the in-game map voting.
+
+	Handle mapArray = ReadMapList(
+		_mapArray,
+		mapSerial,
+		"default",
+		MAPLIST_FLAG_CLEARARRAY|MAPLIST_FLAG_MAPSFOLDER);
+
+	if (mapArray != null)
+	{
+		_mapArray = mapArray;
+	}
+
+	if (_mapArray == null)
+	{
+		PrintToChatAll("\x07e50000[Tournament Helper] Map array is null.");
+		return 1;
+	}
+
+	menu.SetTitle("Select a map.");
+	
+	int mapCount = GetArraySize(_mapArray);
+	for (int i = 0; i < mapCount; i++)
+	{
+		char mapName[PLATFORM_MAX_PATH];
+		GetArrayString(_mapArray, i, mapName, sizeof(mapName));
+
+		char mapDisplayName[PLATFORM_MAX_PATH];
+		GetMapDisplayName(mapName, mapDisplayName, sizeof(mapDisplayName));
+
+		PrintToChatAll("(%d) '%s': '%s'", i, mapName, mapDisplayName);
+
+		menu.AddItem(mapName, mapDisplayName);
+	}
+
+	return 0;
+}
+
+public int StartVoteHelper_PopulateReadyMenu(Menu menu, DataPack inputPack)
+{
+	inputPack.Reset();
+	int client = inputPack.ReadCell();
+	CloseHandle(inputPack);
+
+	char requestorName[MAX_NAME_LENGTH];
+	GetClientName(client, requestorName, sizeof(requestorName));
+
+	menu.SetTitle("'%s' has initiated a vote to start the match. Is your team ready?", requestorName);
+	menu.AddItem("yes", "Yes");
+	menu.AddItem("no", "No");
 }

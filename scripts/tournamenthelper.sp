@@ -318,17 +318,7 @@ public void Handle_VoteResults(
 
 	if (_currentVoteType == 1) // Ready Vote
 	{
-		int yesItemIndex = -1;
-		for (int i = 0; i < num_items; i++)
-		{
-			char item[64];
-			menu.GetItem(item_info[i][VOTEINFO_ITEM_INDEX], item, sizeof(item));
-			if (StrEqual(item, "yes"))
-			{
-				yesItemIndex = item_info[i][VOTEINFO_ITEM_INDEX];
-				break;
-			}
-		}
+		int yesItemIndex = GetMenuItemIndex(menu, num_items, item_info, "yes");
 
 		// Verify yes from each player on a team.
 		for (int i = 0; i < _playerCount; i++)
@@ -339,24 +329,7 @@ public void Handle_VoteResults(
 			}
 
 			// Get vote for player.
-			int playerVoteItemIndex = -2;
-			for (int j = 0; j < num_clients; j++)
-			{
-				char authId[35];
-				GetClientAuthId(client_info[j][VOTEINFO_CLIENT_INDEX], AuthId_Steam2, authId, sizeof(authId));
-
-				PrintToChatAll("[Tournament Helper] Checking %s vs %s", authId, _playerAuthIdInfo[i]);
-				if (StrEqual(authId, _playerAuthIdInfo[i]))
-				{
-					playerVoteItemIndex = client_info[j][VOTEINFO_CLIENT_ITEM];
-
-					char playerName[64];
-					GetClientName(client_info[j][VOTEINFO_CLIENT_INDEX], playerName, sizeof(playerName));
-					char item[64];
-					menu.GetItem(client_info[j][VOTEINFO_CLIENT_ITEM], item, sizeof(item));
-					PrintToChatAll("[Tournament Helper] %s voted %s", playerName, item);
-				}
-			}
+			int playerVoteItemIndex = GetPlayerVoteItemIndex(menu, num_clients, client_info, _playerAuthIdInfo[i]);
 
 			if (playerVoteItemIndex < 0 || playerVoteItemIndex != yesItemIndex)
 			{
@@ -365,4 +338,50 @@ public void Handle_VoteResults(
 			}
 		}
 	}
+}
+
+public int GetMenuItemIndex(
+	Menu menu,
+	int num_items, 
+  const int[][] item_info,
+	const char[] itemName)
+{
+	for (int i = 0; i < num_items; i++)
+	{
+		char item[64];
+		menu.GetItem(item_info[i][VOTEINFO_ITEM_INDEX], item, sizeof(item));
+		if (StrEqual(item, itemName))
+		{
+			return item_info[i][VOTEINFO_ITEM_INDEX];
+		}
+	}
+
+	return -1;
+}
+
+public int GetPlayerVoteItemIndex(
+	Menu menu,
+	int num_clients, 
+  const int[][] client_info,
+	const char[] playerAuthId)
+{
+	for (int i = 0; i < num_clients; i++)
+	{
+		char authId[35];
+		GetClientAuthId(client_info[i][VOTEINFO_CLIENT_INDEX], AuthId_Steam2, authId, sizeof(authId));
+
+		PrintToChatAll("[Tournament Helper] Checking %s vs %s", authId, playerAuthId);
+		if (StrEqual(authId, playerAuthId))
+		{
+			char playerName[64];
+			GetClientName(client_info[i][VOTEINFO_CLIENT_INDEX], playerName, sizeof(playerName));
+			char item[64];
+			menu.GetItem(client_info[i][VOTEINFO_CLIENT_ITEM], item, sizeof(item));
+			PrintToChatAll("[Tournament Helper] %s voted %s", playerName, item);
+
+			return client_info[i][VOTEINFO_CLIENT_ITEM];
+		}
+	}
+
+	return -2;
 }

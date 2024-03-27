@@ -4,7 +4,7 @@
 #pragma semicolon 1
 #pragma newdecls required
 
-#define PLUGIN_VERSION "1.02"
+#define PLUGIN_VERSION "1.03"
 
 StringMap _authIdDisconnectTimestampMap;
 Database _database;
@@ -108,7 +108,7 @@ public Action Command_AllStats(int client, int args)
 {
 	if (args > 3)
 	{
-		ReplyToCommand(client, "[Simple Player Stats] Usage: sm_allstats [Type('Total'|'Custom'|'Startup')] [SortColumn('ActiveTime'|'DeathsToEnemyPlayers'|'EnemyPlayerKills'|'LastConnectionTimestamp')] [Page]");
+		ReplyToCommand(client, "\x05[Simple Player Stats] Usage: sm_allstats [Type('Total'|'Custom'|'Startup')] [SortColumn('ActiveTime'|'DeathsToEnemyPlayers'|'EnemyPlayerKills'|'LastConnectionTimestamp')] [Page]");
 		return Plugin_Handled;
 	}
 
@@ -144,7 +144,7 @@ public Action Command_AllStats(int client, int args)
 
 	if (args == 0)
 	{
-		ReplyToCommand(client, "[Simple Player Stats] Using defaults: sm_allstats Total ActiveTime 1");
+		ReplyToCommand(client, "\x05[Simple Player Stats] Using defaults: sm_allstats Total ActiveTime 1");
 	}
 
 	char recordType[32];
@@ -162,7 +162,7 @@ public Action Command_AllStats(int client, int args)
 	}
 	else
 	{
-		ReplyToCommand(client, "[Simple Player Stats] Invalid type '%s'.", arg1);
+		ReplyToCommand(client, "\x07[Simple Player Stats] Invalid type '%s'.", arg1);
 		return Plugin_Handled;
 	}
 
@@ -185,7 +185,7 @@ public Action Command_AllStats(int client, int args)
 	}
 	else
 	{
-		ReplyToCommand(client, "[Simple Player Stats] Invalid sort column '%s'.", arg2);
+		ReplyToCommand(client, "\x07[Simple Player Stats] Invalid sort column '%s'.", arg2);
 		return Plugin_Handled;
 	}
 
@@ -193,13 +193,13 @@ public Action Command_AllStats(int client, int args)
 	int page = StringToInt(arg3);
 	int offset = (page - 1) * pageSize;
 
-	ReplyToCommand(client, "[Simple Player Stats] %s Stats are being printed in the console.", recordType);
+	ReplyToCommand(client, "\x05[Simple Player Stats] %s Stats are being printed in the console.", recordType);
 	if (StrEqual(recordType, "Startup"))
 	{
 		char dateTime[32]; 
 		FormatTime(dateTime, sizeof(dateTime), "%F %R", _pluginStartTimestamp);
 
-		ReplyToCommand(client, "[Simple Player Stats] Last startup: %s", dateTime);
+		ReplyToCommand(client, "\x05[Simple Player Stats] Last startup: %s", dateTime);
 	}
 
 	char queryString[256];
@@ -215,7 +215,7 @@ public Action Command_AuditLogs(int client, int args)
 {
 	if (args > 1)
 	{
-		ReplyToCommand(client, "[Simple Player Stats] Usage: sm_auditlogs [Page]");
+		ReplyToCommand(client, "\x05[Simple Player Stats] Usage: sm_auditlogs [Page]");
 		return Plugin_Handled;
 	}
 
@@ -231,14 +231,14 @@ public Action Command_AuditLogs(int client, int args)
 
 	if (args == 0)
 	{
-		ReplyToCommand(client, "[Simple Player Stats] Using defaults: sm_auditlogs 1");
+		ReplyToCommand(client, "\x05[Simple Player Stats] Using defaults: sm_auditlogs 1");
 	}
 
 	int pageSize = 50;
 	int page = StringToInt(arg1);
 	int offset = (page - 1) * pageSize;
 
-	ReplyToCommand(client, "[Simple Player Stats] Audit logs are being printed in the console.");
+	ReplyToCommand(client, "\x05[Simple Player Stats] Audit logs are being printed in the console.");
 
 	char queryString[256];
 	SQL_FormatQuery(_database, queryString, sizeof(queryString), "SELECT * FROM sps_auditlogs ORDER BY Timestamp DESC LIMIT %d OFFSET %d", pageSize, offset);
@@ -249,7 +249,7 @@ public Action Command_AuditLogs(int client, int args)
 public Action Command_MyStats(int client, int args)
 {
 	if (args > 1) {
-		ReplyToCommand(client, "[Simple Player Stats] Usage: sm_mystats [Type('Total'|'Custom'|'Startup')]");
+		ReplyToCommand(client, "\x05[Simple Player Stats] Usage: sm_mystats [Type('Total'|'Custom'|'Startup')]");
 		return Plugin_Handled;
 	}
 
@@ -278,7 +278,7 @@ public Action Command_MyStats(int client, int args)
 	}
 	else
 	{
-		ReplyToCommand(client, "[Simple Player Stats] Invalid type '%s'.", arg1);
+		ReplyToCommand(client, "\x07[Simple Player Stats] Invalid type '%s'.", arg1);
 		return Plugin_Handled;
 	}
 
@@ -291,13 +291,13 @@ public Action Command_MyStats(int client, int args)
 	char authId[35];
 	GetClientAuthId(client, AuthId_Steam2, authId, sizeof(authId));
 
-	ReplyToCommand(client, "[Simple Player Stats] Your %s stats are being printed in the console.", recordType);
+	ReplyToCommand(client, "\x05[Simple Player Stats] Your %s stats are being printed in the console.", recordType);
 	if (StrEqual(recordType, "Startup"))
 	{
 		char dateTime[32]; 
 		FormatTime(dateTime, sizeof(dateTime), "%F %R", _pluginStartTimestamp);
 
-		ReplyToCommand(client, "[Simple Player Stats] Last startup: %s", dateTime);
+		ReplyToCommand(client, "\x05[Simple Player Stats] Last startup: %s", dateTime);
 	}
 
 	char queryString[256];
@@ -310,11 +310,11 @@ public Action Command_ResetStatsCustom(int client, int args)
 {
 	if (args != 0)
 	{
-		ReplyToCommand(client, "[Simple Player Stats] Usage: sm_reset_stats_custom");
+		ReplyToCommand(client, "\x05[Simple Player Stats] Usage: sm_reset_stats_custom");
 		return Plugin_Handled;
 	}
 
-	ReplyToCommand(client, "[Simple Player Stats] Resetting stats of all players for the custom time range.");
+	ReplyToCommand(client, "\x05[Simple Player Stats] Resetting stats of all players for the custom time range.");
 
 	char queryString[256];
 	SQL_FormatQuery(_database, queryString, sizeof(queryString), "DELETE FROM sps_players WHERE RecordType = 'Custom'");
@@ -334,7 +334,7 @@ public void Event_ControlpointCaptured(Event event, const char[] name, bool dont
 	//int oldteam = event.GetInt("oldteam");
 	//int priority = event.GetInt("priority");
 	int team = event.GetInt("team");
-	//PrintToChatAll("controlpoint_captured. cp: %d, cappers: %s, oldteam: %d, priority: %d, team: %d", cp, cappers, oldteam, priority, team);
+	//PrintToChatAll("\x05controlpoint_captured. cp: %d, cappers: %s, oldteam: %d, priority: %d, team: %d", cp, cappers, oldteam, priority, team);
 
 	for (int i = 1; i < MaxClients + 1; i++)
 	{
@@ -345,7 +345,7 @@ public void Event_ControlpointCaptured(Event event, const char[] name, bool dont
 			PrintToConsoleAll("Debug: %s helped capture a control point.", playerName);
 			if (StrEqual(playerName, "Tollski", true))
 			{
-				PrintToChat(i, "You helped capture a control point.");
+				PrintToChat(i, "\x05You helped capture a control point.");
 			}
 
 			char authId[35];
@@ -364,9 +364,9 @@ public void Event_ControlpointEndtouch(Event event, const char[] name, bool dont
 	//int owner = event.GetInt("owner");
 	int playerClient = event.GetInt("player");
 	//int team = event.GetInt("team");
-	//PrintToChatAll("controlpoint_endtouch. area: %d, owner: %d, player: %d, team: %d", area, owner, playerClient, team);
+	//PrintToChatAll("\x05controlpoint_endtouch. area: %d, owner: %d, player: %d, team: %d", area, owner, playerClient, team);
 
-	if (IsFakeClient(playerClient))
+	if (!IsClientConnected(playerClient) || IsFakeClient(playerClient))
 	{
 		return;
 	}
@@ -382,7 +382,7 @@ public void Event_ControlpointStartTouch(Event event, const char[] name, bool do
 	int playerClient = event.GetInt("player");
 	//int team = event.GetInt("team");
 	//int type = event.GetInt("type");
-	//PrintToChatAll("controlpoint_starttouch. area: %d, object: %d, owner: %d, player: %d, team: %d, type: %d", area, obj, owner, playerClient, team, type);
+	//PrintToChatAll("\x05controlpoint_starttouch. area: %d, object: %d, owner: %d, player: %d, team: %d, type: %d", area, obj, owner, playerClient, team, type);
 
 	if (IsFakeClient(playerClient))
 	{
@@ -396,7 +396,7 @@ public void Event_FlagCaptured(Event event, const char[] name, bool dontBroadcas
 {
 	//int priority = event.GetInt("priority");
 	int userid = event.GetInt("userid");
-	//PrintToChatAll("flag_captured. priority: %d, userid: %d", priority, userid);
+	//PrintToChatAll("\x05flag_captured. priority: %d, userid: %d", priority, userid);
 
 	int client = GetClientOfUserId(userid);
 	if (IsFakeClient(client))
@@ -409,7 +409,7 @@ public void Event_FlagCaptured(Event event, const char[] name, bool dontBroadcas
 	PrintToConsoleAll("Debug: %s captured the flag.", playerName);
 	if (StrEqual(playerName, "Tollski", true))
 	{
-		PrintToChat(client, "You captured the flag.");
+		PrintToChat(client, "\x05You captured the flag.");
 	}
 
 	char authId[35];
@@ -425,7 +425,7 @@ public void Event_FlagPickup(Event event, const char[] name, bool dontBroadcast)
 	//int cp = event.GetInt("cp");
 	//int priority = event.GetInt("priority");
 	int userid = event.GetInt("userid");
-	//PrintToChatAll("flag_captured. cp: %d, priority: %d, userid: %d", cp, priority, userid);
+	//PrintToChatAll("\x05flag_captured. cp: %d, priority: %d, userid: %d", cp, priority, userid);
 
 	int client = GetClientOfUserId(userid);
 	if (IsFakeClient(client))
@@ -438,7 +438,7 @@ public void Event_FlagPickup(Event event, const char[] name, bool dontBroadcast)
 	PrintToConsoleAll("Debug: %s picked up the flag.", playerName);
 	if (StrEqual(playerName, "Tollski", true))
 	{
-		PrintToChat(client, "You picked up the flag.");
+		PrintToChat(client, "\x05You picked up the flag.");
 	}
 
 	char authId[35];
@@ -469,7 +469,7 @@ public void Event_ObjectDestroyed(Event event, const char[] name, bool dontBroad
 	//char weapon[64];
 	//event.GetString("weapon", weapon, sizeof(weapon));
 	//int weaponid = event.GetInt("weaponid");
-	//PrintToChatAll("object_destroyed. attacker: %d, attackerTeam: %d, assister: %d, cp: %d, index: %d, team: %d, type: %d, weapon: %s, weaponid: %d",
+	//PrintToChatAll("\x05object_destroyed. attacker: %d, attackerTeam: %d, assister: %d, cp: %d, index: %d, team: %d, type: %d, weapon: %s, weaponid: %d",
 		//attackerClient, attackerTeam, assister, cp, index, team, type, weapon, weaponid);
 
 	if (IsFakeClient(attackerClient))
@@ -482,7 +482,7 @@ public void Event_ObjectDestroyed(Event event, const char[] name, bool dontBroad
 	PrintToConsoleAll("Debug: %s destroyed an objective.", playerName);
 	if (StrEqual(playerName, "Tollski", true))
 	{
-		PrintToChat(attackerClient, "You destroyed an objective.");
+		PrintToChat(attackerClient, "\x05You destroyed an objective.");
 	}
 
 	char authId[35];
@@ -521,12 +521,12 @@ public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast
 	// float x = event.GetFloat("x");
 	// float y = event.GetFloat("y");
 	// float z = event.GetFloat("z");
-	// PrintToChatAll("player_death. attackerUserid: %d, victimUserid: %d, attackerTeam: %d, victimTeam: %d, assister: %d, damagebits: %d, deathflags: %d, lives: %d, priority: %d, weapon: %s, weaponid: %d, x: %d, y: %d, z: %d",
+	// PrintToChatAll("\x05player_death. attackerUserid: %d, victimUserid: %d, attackerTeam: %d, victimTeam: %d, assister: %d, damagebits: %d, deathflags: %d, lives: %d, priority: %d, weapon: %s, weaponid: %d, x: %d, y: %d, z: %d",
 	// 	attackerClient, victimUserid, attackerTeam, victimTeam, assister, damagebits, deathflags, lives, priority, weapon, weaponid, x, y ,z);
 
 	bool victimIsBot = IsFakeClient(victimClient);
 
-	if (attackerUserid == 0 && attackerTeam < 0) 
+	if ((attackerClient == 0 || attackerClient > MaxClients) && attackerTeam < 0) 
 	{
 		// Environment Kill
 		if (victimIsBot)
@@ -623,7 +623,7 @@ public void Event_PlayerTeam(Event event, const char[] name, bool dontBroadcast)
 	int team = event.GetInt("team");
 	int oldteam = event.GetInt("oldteam");
 	
-	//PrintToChatAll("Player Team Event. userid: %d, team: %d, oldteam: %d.", userid, team, oldteam);
+	//PrintToChatAll("\x05Player Team Event. userid: %d, team: %d, oldteam: %d.", userid, team, oldteam);
 
 	int client = GetClientOfUserId(userid);
 	if (IsFakeClient(client))
@@ -721,11 +721,11 @@ public void SqlQueryCallback_Command_AllStats1(Handle database, Handle handle, c
 
 	if (SQL_GetRowCount(handle) == 0)
 	{
-		ReplyToCommand(client, "[Simple Player Stats] No rows found for selected query.");
+		ReplyToCommand(client, "\x07[Simple Player Stats] No rows found for selected query.");
 		return;
 	}
 
-	ReplyToCommand(client, "PlayerName      | FirstConn  | LastConn   | TotConns | PlayTime  | EBKills  | EPKills  | DeathsEB | DeathsEP | Suicides | DeathsOther | Objectives");
+	ReplyToCommand(client, "\x05PlayerName      | FirstConn  | LastConn   | TotConns | PlayTime  | EBKills  | EPKills  | DeathsEB | DeathsEP | Suicides | DeathsOther | Objectives");
 	while (SQL_FetchRow(handle))
 	{
 		char playerName[21]; // Cut off anything past 20 characters in a player's name.
@@ -753,7 +753,7 @@ public void SqlQueryCallback_Command_AllStats1(Handle database, Handle handle, c
 
 		ReplyToCommand(
 			client,
-			"%15s | %10s | %10s | %8d | %8.1fh | %8d | %8d | %8d | %8d | %8d | %11d | %10d",
+			"\x05%15s | %10s | %10s | %8d | %8.1fh | %8d | %8d | %8d | %8d | %8d | %11d | %10d",
 			playerName, firstConnectionDate, lastConnectionDate,
 			connectionCount, ((activeTime * 100) / 3600) / float(100),
 			enemyBotKills, enemyPlayerKills,
@@ -771,11 +771,11 @@ public void SqlQueryCallback_Command_AuditLogs1(Handle database, Handle handle, 
 
 	if (SQL_GetRowCount(handle) == 0)
 	{
-		ReplyToCommand(client, "[Simple Player Stats] No rows found for selected query.");
+		ReplyToCommand(client, "\x07[Simple Player Stats] No rows found for selected query.");
 		return;
 	}
 
-	ReplyToCommand(client, "Timestamp        | Description");
+	ReplyToCommand(client, "\x05Timestamp        | Description");
 	while (SQL_FetchRow(handle))
 	{
 		int timestamp = SQL_FetchInt(handle, 0);
@@ -785,7 +785,7 @@ public void SqlQueryCallback_Command_AuditLogs1(Handle database, Handle handle, 
 		char dateTime[32]; 
 		FormatTime(dateTime, sizeof(dateTime), "%F %R", timestamp);
 
-		ReplyToCommand(client, "%16s | %s", dateTime, description);
+		ReplyToCommand(client, "\x05%16s | %s", dateTime, description);
 	}
 }
 
@@ -824,7 +824,7 @@ public void SqlQueryCallback_Command_MyStats1(Handle database, Handle handle, co
 
 	ReplyToCommand(
 		client,
-		"[Simple Player Stats] Your Stats -- ConnectionCount: %d - ConnectedTime: %dh%dm - ActiveTime: %dh%dm - TotalKills: %d (%d enemy bots, %d enemy players, %d team) - TotalDeaths: %d (%d enemy bots, %d enemy players, %d self, %d team, %d other) - Objectives: %d (%d control points captured, %d flags picked up, %d flags captured, %d objectives destroyed)",
+		"\x05[Simple Player Stats] Your Stats -- ConnectionCount: %d - ConnectedTime: %dh%dm - ActiveTime: %dh%dm - TotalKills: %d (%d enemy bots, %d enemy players, %d team) - TotalDeaths: %d (%d enemy bots, %d enemy players, %d self, %d team, %d other) - Objectives: %d (%d control points captured, %d flags picked up, %d flags captured, %d objectives destroyed)",
 		connectionCount, connectedTime / 3600, connectedTime % 3600 / 60, activeTime / 3600, activeTime % 3600 / 60,
 		enemyBotKills + enemyPlayerKills + teamKills, enemyBotKills, enemyPlayerKills, teamKills,
 		deathsToEnemyBots + deathsToEnemyPlayers + deathsToSelf + deathsToTeam + deathsToOther, deathsToEnemyBots, deathsToEnemyPlayers, deathsToSelf, deathsToTeam, deathsToOther,
@@ -894,7 +894,7 @@ public void SqlQueryCallback_EnsurePlayerDatabaseRecordsExist1(Handle database, 
 
 		if (StrEqual(recordType, "Total"))
 		{
-			PrintToChat(client, "Welcome %s, this is your first time here!", name);
+			PrintToChat(client, "\x05Welcome %s, this is your first time here!", name);
 		}
 
 		return;
@@ -915,7 +915,7 @@ public void SqlQueryCallback_EnsurePlayerDatabaseRecordsExist1(Handle database, 
 
 	if (StrEqual(recordType, "Total"))
 	{
-		PrintToChat(client, "Welcome %s, you have played on this server %d times for %dh%dm (%dh%dm active).", name, connectionCount + 1, connectedTime / 3600, connectedTime % 3600 / 60, activeTime / 3600, activeTime % 3600 / 60);
+		PrintToChat(client, "\x05Welcome %s, you have played on this server %d times for %dh%dm (%dh%dm active).", name, connectionCount + 1, connectedTime / 3600, connectedTime % 3600 / 60, activeTime / 3600, activeTime % 3600 / 60);
 	}
 }
 

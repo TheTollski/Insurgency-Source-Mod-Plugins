@@ -28,9 +28,9 @@ int global_IndexRemember = 0;
 
 public Plugin myinfo = {
 	name = "Dynamic MapScale & Playlist",
-	author = "Nades, updated and modified by JonnyBoy0719 and Linothorax",
+	author = "Nades, updated and modified by JonnyBoy0719, Linothorax, and Tollski",
 	description = "Dynamically update the mapcycle and playlist.",
-	version = "0.11",
+	version = "0.12",
 	url = ""
 }
 
@@ -136,108 +136,103 @@ void hasEnoughPlayer() {
 		LogMessage("[Dynamic] Selected Mapcycle: \"%s\", Playlist: \"%s\", PlayText: \"%s\"", strMapcycle, strPlaylist, strPlayText);
 	}
 
-	if (!StrEqual(strConvarMap, strMapcycle) || !StrEqual(strConvarPlay, strPlaylist)) {
-		ServerCommand("mapcyclefile %s", strMapcycle);
-		PrintToChatAll("%s Loading \"%s\" mapcycle...", strPrefix, strPlayText);
-		if (_log) LogMessage("[Dynamic] Loading \"%s\" mapcycle...", strPlayText);
+	if (StrEqual(strConvarMap, strMapcycle) && StrEqual(strConvarPlay, strPlaylist)) {
+		return;
 	}
 
-	// Boolean, so we can also use global_IndexRemember if index is higher than 0
-	bool bPerformChangeLevel = !StrEqual(strConvarPlay, strPlaylist);
-	if ( index > 0 && global_EnableMediumCycle )
-		bPerformChangeLevel = (global_IndexRemember != index) ? true : false;
+	ServerCommand("mapcyclefile %s", strMapcycle);
+	PrintToChatAll("%s Loading \"%s\" mapcycle...", strPrefix, strPlayText);
+	if (_log) LogMessage("[Dynamic] Loading \"%s\" mapcycle...", strPlayText);
 
-	if (bPerformChangeLevel) {
-		gNextLevel = "";
-		switch(index)
+	gNextLevel = "";
+	switch(index)
+	{
+		case 0:
 		{
-			case 0:
+			// #1 Default
+			global_EnableMediumCycle = false;
+			switch(GetRandomInt(0, 15))
 			{
-				// #1 Default
-				global_EnableMediumCycle = false;
-				switch(GetRandomInt(0, 15))
-				{
-					case 0: gNextLevel = "buhriz push";
-					case 1: gNextLevel = "contact push";
-					case 2: gNextLevel = "district push";
-					case 3: gNextLevel = "drycanal push";
-					case 4: gNextLevel = "embassy push";
-					case 5: gNextLevel = "heights push";
-					case 6: gNextLevel = "kandagal push";
-					case 7: gNextLevel = "market push";
-					case 8: gNextLevel = "panj push";
-					case 9: gNextLevel = "peak push";
-					case 10: gNextLevel = "revolt push";
-					case 11: gNextLevel = "siege push";
-					case 12: gNextLevel = "sinjar push";
-					case 13: gNextLevel = "station push";
-					case 14: gNextLevel = "tell push";
-					case 15: gNextLevel = "verticality push";
-				}
-			}
-
-			case 1:
-			{
-				// #2 Medium
-				switch(GetRandomInt(0, 16))
-				{
-					case 0: gNextLevel = "favela_k_fix occupy";
-					case 1: gNextLevel = "dgl_street3 firefight";
-					case 2: gNextLevel = "3mc_training_p1fix firefight";
-					case 3: gNextLevel = "ins_awp_metro_p1 firefight";
-					case 4: gNextLevel = "point_blank_fix occupy";
-					case 5: gNextLevel = "de_lake occupy";
-					case 6: gNextLevel = "tc_bridgecrossing_night occupy";
-					case 7: gNextLevel = "killhouse occupy";
-					case 8: gNextLevel = "dgl_snipe4 firefight";
-					case 9: gNextLevel = "ins_aim_dark_water_p2 firefight";
-					case 10: gNextLevel = "pine_village_v4 occupy";
-					case 11: gNextLevel = "reef_koth occupy";
-					case 12: gNextLevel = "italy_b1_k_fix skirmish";
-					case 13: gNextLevel = "strawberry_arena_koth occupy";
-					case 14: gNextLevel = "nightstalker_v2 skirmish";
-					case 15: gNextLevel = "dgl_paintball4_d occupy";
-					case 16: gNextLevel = "ins_abdallah_b3 push";
-				}
-			}
-
-			case 2:
-			{
-				// #3 High
-				global_EnableMediumCycle = true;
-				switch(GetRandomInt(0, 18))
-				{
-					case 0: gNextLevel = "buhriz push";
-					case 1: gNextLevel = "contact push";
-					case 2: gNextLevel = "district push";
-					case 3: gNextLevel = "drycanal push";
-					case 4: gNextLevel = "embassy push";
-					case 5: gNextLevel = "heights push";
-					case 6: gNextLevel = "kandagal push";
-					case 7: gNextLevel = "market push";
-					case 8: gNextLevel = "panj push";
-					case 9: gNextLevel = "peak push";
-					case 10: gNextLevel = "revolt push";
-					case 11: gNextLevel = "siege push";
-					case 12: gNextLevel = "sinjar push";
-					case 13: gNextLevel = "station push";
-					case 14: gNextLevel = "tell push";
-					case 15: gNextLevel = "verticality push";
-					case 16: gNextLevel = "baghdad_pvp push";
-					case 17: gNextLevel = "baghdad_b5 push";
-					case 18: gNextLevel = "almaden_b5 push";
-				}
+				case 0: gNextLevel = "buhriz push";
+				case 1: gNextLevel = "contact push";
+				case 2: gNextLevel = "district push";
+				case 3: gNextLevel = "drycanal push";
+				case 4: gNextLevel = "embassy push";
+				case 5: gNextLevel = "heights push";
+				case 6: gNextLevel = "kandagal push";
+				case 7: gNextLevel = "market push";
+				case 8: gNextLevel = "panj push";
+				case 9: gNextLevel = "peak push";
+				case 10: gNextLevel = "revolt push";
+				case 11: gNextLevel = "siege push";
+				case 12: gNextLevel = "sinjar push";
+				case 13: gNextLevel = "station push";
+				case 14: gNextLevel = "tell push";
+				case 15: gNextLevel = "verticality push";
 			}
 		}
-		if (_log) LogMessage("[Dynamic] Setting the Index Remember from %d to %d)", index, global_IndexRemember);
-		global_IndexRemember = index;
-		CreateTimer(GetConVarFloat(FindConVar("mp_timer_taglines"))-0.5, Timer_Changelevel, _, TIMER_FLAG_NO_MAPCHANGE);
-		ServerCommand("sv_playlist %s", strPlaylist);
-		if (_log) {
-			LogMessage("[Dynamic] Selected next map from \"%s\" map list is \"%s\"", strPlayText, gNextLevel);
-			LogMessage("[Dynamic] Playlist changing to \"%s\"", strPlaylist);
-			LogMessage("[Dynamic] Changelevel in %0.2f", GetConVarFloat(FindConVar("mp_timer_taglines"))-0.5);
+
+		case 1:
+		{
+			// #2 Medium
+			switch(GetRandomInt(0, 16))
+			{
+				case 0: gNextLevel = "favela_k_fix occupy";
+				case 1: gNextLevel = "dgl_street3 firefight";
+				case 2: gNextLevel = "3mc_training_p1fix firefight";
+				case 3: gNextLevel = "ins_awp_metro_p1 firefight";
+				case 4: gNextLevel = "point_blank_fix occupy";
+				case 5: gNextLevel = "de_lake occupy";
+				case 6: gNextLevel = "tc_bridgecrossing_night occupy";
+				case 7: gNextLevel = "killhouse occupy";
+				case 8: gNextLevel = "dgl_snipe4 firefight";
+				case 9: gNextLevel = "ins_aim_dark_water_p2 firefight";
+				case 10: gNextLevel = "pine_village_v4 occupy";
+				case 11: gNextLevel = "reef_koth occupy";
+				case 12: gNextLevel = "italy_b1_k_fix skirmish";
+				case 13: gNextLevel = "strawberry_arena_koth occupy";
+				case 14: gNextLevel = "nightstalker_v2 skirmish";
+				case 15: gNextLevel = "dgl_paintball4_d occupy";
+				case 16: gNextLevel = "ins_abdallah_b3 push";
+			}
 		}
+
+		case 2:
+		{
+			// #3 High
+			global_EnableMediumCycle = true;
+			switch(GetRandomInt(0, 18))
+			{
+				case 0: gNextLevel = "buhriz push";
+				case 1: gNextLevel = "contact push";
+				case 2: gNextLevel = "district push";
+				case 3: gNextLevel = "drycanal push";
+				case 4: gNextLevel = "embassy push";
+				case 5: gNextLevel = "heights push";
+				case 6: gNextLevel = "kandagal push";
+				case 7: gNextLevel = "market push";
+				case 8: gNextLevel = "panj push";
+				case 9: gNextLevel = "peak push";
+				case 10: gNextLevel = "revolt push";
+				case 11: gNextLevel = "siege push";
+				case 12: gNextLevel = "sinjar push";
+				case 13: gNextLevel = "station push";
+				case 14: gNextLevel = "tell push";
+				case 15: gNextLevel = "verticality push";
+				case 16: gNextLevel = "baghdad_pvp push";
+				case 17: gNextLevel = "baghdad_b5 push";
+				case 18: gNextLevel = "almaden_b5 push";
+			}
+		}
+	}
+
+	if (_log) LogMessage("[Dynamic] Setting the Index Remember from %d to %d)", index, global_IndexRemember);
+	global_IndexRemember = index;
+	CreateTimer(1.0, Timer_Changelevel, _, TIMER_FLAG_NO_MAPCHANGE);
+	ServerCommand("sv_playlist %s", strPlaylist);
+	if (_log) {
+		LogMessage("[Dynamic] Selected next map from \"%s\" map list is \"%s\"", strPlayText, gNextLevel);
+		LogMessage("[Dynamic] Playlist changing to \"%s\"", strPlaylist);
 	}
 }
 

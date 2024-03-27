@@ -35,7 +35,6 @@ public Plugin myinfo = {
 }
 
 public void OnPluginStart() {
-
 	global_playercount[0][0] = CreateConVar("sm_playercount_default_min", "0", "Number of min players needed to switch on Playlist #1", _, true, 0.0, false, 128.0);
 	global_playercount[0][1] = CreateConVar("sm_playercount_default_max", "10", "Number of max players needed to switch on Playlist #1", _, true, 0.0, false, 128.0);
 
@@ -140,9 +139,16 @@ void hasEnoughPlayer() {
 		return;
 	}
 
-	ServerCommand("mapcyclefile %s", strMapcycle);
-	PrintToChatAll("%s Loading \"%s\" mapcycle...", strPrefix, strPlayText);
-	if (_log) LogMessage("[Dynamic] Loading \"%s\" mapcycle...", strPlayText);
+	if (!StrEqual(strConvarMap, strMapcycle)) {
+		if (_log) LogMessage("[Dynamic] Changing mapcycle from '%s' to '%s'...", strConvarMap, strMapcycle);
+		PrintToChatAll("%s Changing mapcycle from '%s' to '%s'...", strPrefix, strConvarMap, strMapcycle);
+		ServerCommand("mapcyclefile %s", strMapcycle);
+	}
+	if (!StrEqual(strConvarPlay, strPlaylist)) {
+		if (_log) LogMessage("[Dynamic] Changing playlist from '%s' to '%s'...", strConvarPlay, strPlaylist);
+		PrintToChatAll("%s Changing playlist from '%s' to '%s'...", strPrefix, strConvarPlay, strPlaylist);
+		ServerCommand("sv_playlist %s", strPlaylist);
+	}
 
 	gNextLevel = "";
 	switch(index)
@@ -171,7 +177,6 @@ void hasEnoughPlayer() {
 				case 15: gNextLevel = "verticality push";
 			}
 		}
-
 		case 1:
 		{
 			// #2 Medium
@@ -196,7 +201,6 @@ void hasEnoughPlayer() {
 				case 16: gNextLevel = "ins_abdallah_b3 push";
 			}
 		}
-
 		case 2:
 		{
 			// #3 High
@@ -228,12 +232,8 @@ void hasEnoughPlayer() {
 
 	if (_log) LogMessage("[Dynamic] Setting the Index Remember from %d to %d)", index, global_IndexRemember);
 	global_IndexRemember = index;
-	CreateTimer(1.0, Timer_Changelevel, _, TIMER_FLAG_NO_MAPCHANGE);
-	ServerCommand("sv_playlist %s", strPlaylist);
-	if (_log) {
-		LogMessage("[Dynamic] Selected next map from \"%s\" map list is \"%s\"", strPlayText, gNextLevel);
-		LogMessage("[Dynamic] Playlist changing to \"%s\"", strPlaylist);
-	}
+	CreateTimer(5.0, Timer_Changelevel, _, TIMER_FLAG_NO_MAPCHANGE);
+	if (_log) LogMessage("[Dynamic] Selected next map from \"%s\" map list is \"%s\"", strPlayText, gNextLevel);
 }
 
 public Action Timer_Changelevel(Handle timer) {

@@ -4,9 +4,10 @@
 #pragma semicolon 1
 #pragma newdecls required
 
-#define PLUGIN_VERSION "1.00"
+#define PLUGIN_VERSION "1.01"
 
 bool _isEnabled = false;
+int _normalMpIgnoreWinConditionsValue;
 
 public Plugin myinfo = 
 {
@@ -54,15 +55,36 @@ public Action OnClientSayCommand(int client, const char[] command, const char[] 
 	}
 }
 
+public void OnMapEnd()
+{
+	if (!_isEnabled)
+	{
+		return;
+	}
+
+	// Ensure any ConVar changes made by the map are reverted.
+	ConVar mpIgnoreWinConditionsConVar = FindConVar("mp_ignore_win_conditions");
+	mpIgnoreWinConditionsConVar.IntValue = _normalMpIgnoreWinConditionsValue;
+} 
+
 public void OnMapStart()
 {
 	char mapName[64];
 	int bytesWritten = GetCurrentMap(mapName, sizeof(mapName));
 	if (bytesWritten == 0) {
 		PrintToServer("[Demolition Helper] Unable to get current map name.");
+		return;
 	}
 	
 	_isEnabled = StrContains(mapName, "_demolition_", false) >= 0;
+
+	if (!_isEnabled)
+	{
+		return;
+	}
+
+	ConVar mpIgnoreWinConditionsConVar = FindConVar("mp_ignore_win_conditions");
+	_normalMpIgnoreWinConditionsValue = mpIgnoreWinConditionsConVar.IntValue;
 }
 
 // Commands

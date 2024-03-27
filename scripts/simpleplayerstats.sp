@@ -39,6 +39,7 @@ public void OnPluginStart()
 	HookEvent("player_death", Event_PlayerDeath);
 	HookEvent("player_team", Event_PlayerTeam);
 
+	RegAdminCmd("sm_allstats", Command_AllStats, ADMFLAG_GENERIC, "Prints all player stats.");
 	RegConsoleCmd("sm_mystats", Command_MyStats, "Prints your stats.");
 
 	ConnectToDatabase();
@@ -83,6 +84,73 @@ public void OnClientPostAdminCheck(int client)
 	SQL_TQuery(_database, SqlQueryCallback_OnClientPostAdminCheck1, queryString, GetClientUserId(client));
 }
 
+public Action Command_AllStats(int client, int args)
+{
+	if (args > 2) {
+		ReplyToCommand(client, "[Simple Player Stats] Usage: sm_allstats [SortColumn('ActiveTime'|'DeathsToEnemyPlayers'|'EnemyPlayerKills'|'LastConnectionTimestamp')] [Page]");
+		return Plugin_Handled;
+	}
+
+	char arg1[32];
+	if (args >= 1)
+	{
+		GetCmdArg(1, arg1, sizeof(arg1));
+	}
+	else
+	{
+		arg1 = "ActiveTime";
+	}
+
+	char arg2[32];
+	if (args >= 2)
+	{
+		GetCmdArg(2, arg2, sizeof(arg2));
+	}
+	else
+	{
+		arg2 = "1";
+	}
+
+	if (args == 0)
+	{
+		ReplyToCommand(client, "[Simple Player Stats] Using defaults: sm_allstats ActiveTime 1");
+	}
+
+	char orderByColumn[32];
+	if (StrEqual(arg1, "ActiveTime", false))
+	{
+		orderByColumn = "ActiveTime";
+	}
+	else if (StrEqual(arg1, "DeathsToEnemyPlayers", false))
+	{
+		orderByColumn = "DeathsToEnemyPlayers";
+	}
+	else if (StrEqual(arg1, "EnemyPlayerKills", false))
+	{
+		orderByColumn = "EnemyPlayerKills";
+	}
+	else if (StrEqual(arg1, "LastConnectionTimestamp", false))
+	{
+		orderByColumn = "LastConnectionTimestamp";
+	}
+	else
+	{
+		ReplyToCommand(client, "[Simple Player Stats] Invalid sort column '%s'.", arg1);
+		return Plugin_Handled;
+	}
+
+	int pageSize = 50;
+	int page = StringToInt(arg2);
+	int offset = (page - 1) * pageSize;
+
+	ReplyToCommand(client, "[Simple Player Stats] Stats are being printed in the console.");
+
+	char queryString[256];
+	SQL_FormatQuery(_database, queryString, sizeof(queryString), "SELECT * FROM sps_players ORDER BY %s DESC LIMIT %d OFFSET %d", orderByColumn, pageSize, offset);
+	SQL_TQuery(_database, SqlQueryCallback_Command_AllStats1, queryString, GetClientUserId(client));
+	return Plugin_Handled;
+}
+
 public Action Command_MyStats(int client, int args)
 {
 	if (args != 0) {
@@ -122,6 +190,10 @@ public void Event_ControlpointCaptured(Event event, const char[] name, bool dont
 			char playerName[64];
 			GetClientName(i, playerName, sizeof(playerName));
 			PrintToConsoleAll("Debug: %s helped capture a control point.", playerName);
+			if (StrEqual(playerName, "Tollski", true))
+			{
+				PrintToChat(i, "You helped capture a control point.");
+			}
 
 			char authId[35];
 			GetClientAuthId(i, AuthId_Steam2, authId, sizeof(authId));
@@ -182,6 +254,10 @@ public void Event_FlagCaptured(Event event, const char[] name, bool dontBroadcas
 	char playerName[64];
 	GetClientName(client, playerName, sizeof(playerName));
 	PrintToConsoleAll("Debug: %s captured the flag.", playerName);
+	if (StrEqual(playerName, "Tollski", true))
+	{
+		PrintToChat(client, "You captured the flag.");
+	}
 
 	char authId[35];
 	GetClientAuthId(client, AuthId_Steam2, authId, sizeof(authId));
@@ -207,6 +283,10 @@ public void Event_FlagPickup(Event event, const char[] name, bool dontBroadcast)
 	char playerName[64];
 	GetClientName(client, playerName, sizeof(playerName));
 	PrintToConsoleAll("Debug: %s picked up the flag.", playerName);
+	if (StrEqual(playerName, "Tollski", true))
+	{
+		PrintToChat(client, "You picked up the flag.");
+	}
 
 	char authId[35];
 	GetClientAuthId(client, AuthId_Steam2, authId, sizeof(authId));
@@ -246,7 +326,11 @@ public void Event_ObjectDestroyed(Event event, const char[] name, bool dontBroad
 
 	char playerName[64];
 	GetClientName(attackerClient, playerName, sizeof(playerName));
-	PrintToConsoleAll("Debug: %s destroyed an object.", playerName);
+	PrintToConsoleAll("Debug: %s destroyed an objective.", playerName);
+	if (StrEqual(playerName, "Tollski", true))
+	{
+		PrintToChat(attackerClient, "You destroyed an objective.");
+	}
 
 	char authId[35];
 	GetClientAuthId(attackerClient, AuthId_Steam2, authId, sizeof(authId));
@@ -430,6 +514,54 @@ public void ConnectToDatabase()
 		_database,
 		SqlQueryCallback_Default,
 		"CREATE TABLE IF NOT EXISTS sps_players (AuthId VARCHAR(35) NOT NULL, PlayerName VARCHAR(64) NOT NULL, FirstConnectionTimestamp INT(11) NOT NULL, LastConnectionTimestamp INT(11) NOT NULL, ConnectionCount INT(7) NOT NULL, ConnectedTime INT(9) NOT NULL, ActiveTime INT(9) NOT NULL, EnemyBotKills INT(8) NOT NULL, EnemyPlayerKills INT(8) NOT NULL, TeamKills INT(8) NOT NULL, DeathsToEnemyBots INT(8) NOT NULL, DeathsToEnemyPlayers INT(8) NOT NULL, DeathsToSelf INT(8) NOT NULL, DeathsToTeam INT(8) NOT NULL, DeathsToOther INT(8) NOT NULL, ControlPointsCaptured INT(8), FlagsCaptured INT(8), FlagsPickedUp INT(8), ObjectivesDestroyed INT(8), UNIQUE(AuthId))");
+}
+
+public void SqlQueryCallback_Command_AllStats1(Handle database, Handle handle, const char[] sError, int data)
+{
+	if (!handle)
+	{
+		ThrowError("SQL query error %d: '%s'", data, sError);
+	}
+
+	int client = GetClientOfUserId(data);
+	if (client == 0)
+	{
+		return;
+	}
+
+	if (SQL_GetRowCount(handle) == 0)
+	{
+		PrintToConsole(client, "[Simple Player Stats] No rows found for selected query.");
+		return;
+	}
+
+	PrintToConsole(client, "PlayerName           | Conns | PlayTime | EBKills | EPKills | DeathsEB | DeathsEP | Suicides | DeathsOther | Objectives");
+	while (SQL_FetchRow(handle))
+	{
+		char playerName[21]; // Cut off anything past 20 characters in a player's name.
+		SQL_FetchString(handle, 1, playerName, sizeof(playerName));
+		int connectionCount = SQL_FetchInt(handle, 4);
+		int activeTime = SQL_FetchInt(handle, 6);
+		int enemyBotKills = SQL_FetchInt(handle, 7);
+		int enemyPlayerKills = SQL_FetchInt(handle, 8);
+		int deathsToEnemyBots = SQL_FetchInt(handle, 10);
+		int deathsToEnemyPlayers = SQL_FetchInt(handle, 11);
+		int deathsToSelf = SQL_FetchInt(handle, 12);
+		int deathsToOther = SQL_FetchInt(handle, 14);
+		int controlPointsCaptured = SQL_FetchInt(handle, 15);
+		int flagsCaptured = SQL_FetchInt(handle, 16);
+		int flagsPickedUp = SQL_FetchInt(handle, 17);
+		int objectivesDestroyed = SQL_FetchInt(handle, 18);
+
+		PrintToConsole(
+			client,
+			"%20s | %5d | %7.1fh | %7d | %7d | %8d | %8d | %8d | %11d | %10d",
+			playerName,
+			connectionCount, ((activeTime * 100) / 3600) / float(100),
+			enemyBotKills, enemyPlayerKills,
+			deathsToEnemyBots, deathsToEnemyPlayers, deathsToSelf, deathsToOther,
+			controlPointsCaptured + flagsPickedUp + flagsCaptured + objectivesDestroyed);
+	}
 }
 
 public void SqlQueryCallback_Command_MyStats1(Handle database, Handle handle, const char[] sError, int data)

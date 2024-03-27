@@ -4,7 +4,7 @@
 #pragma semicolon 1
 #pragma newdecls required
 
-#define PLUGIN_VERSION "1.08"
+#define PLUGIN_VERSION "1.09"
 
 int _botsCurrentlyKickingFromTeam[4] = { 0, 0, 0, 0 };
 bool _botStackingIsEnabled = false;
@@ -18,6 +18,9 @@ int _normalBotQuota = 0;
 int _normalTeamsUnbalanceLimit = 0;
 int _teamWithRealPlayers = 0;
 bool _pluginIsChangingInsBotQuota = false;
+int _voteStartTimestamp = 0;
+int _votesNo = 0;
+int _votesYes = 0;
 
 ConVar _cvarShufflePlayersAfterStackingDisabled = null;
 
@@ -119,18 +122,22 @@ public void OnMapStart()
 
 public Action Command_SetBotCounts(int client, int args)
 {
-	if (args != 2) {
-		ReplyToCommand(client, "[Bot Stacker] Usage: sm_setbotcounts <desiredAlliedBotCount> <desiredEnemyBotCount>");
+	if (args < 1 || args > 2) {
+		ReplyToCommand(client, "[Bot Stacker] Usage: sm_setbotcounts <desiredEnemyBotCount> <desiredAlliedBotCount> (eg. sm_setbotcounts 6 1)");
 		return Plugin_Handled;
 	}
 
 	char arg1[32];
 	GetCmdArg(1, arg1, sizeof(arg1));
-	int desiredBotsOnRealPlayersTeam = StringToInt(arg1);
+	int desiredBotsOnOtherTeam = StringToInt(arg1);
 
-	char arg2[32];
-	GetCmdArg(2, arg2, sizeof(arg2));
-	int desiredBotsOnOtherTeam = StringToInt(arg2);
+	int desiredBotsOnRealPlayersTeam = 0;
+	if (args > 1)
+	{
+		char arg2[32];
+		GetCmdArg(2, arg2, sizeof(arg2));
+		desiredBotsOnRealPlayersTeam = StringToInt(arg2);
+	}
 	
 	if (!_botStackingIsEnabled)
 	{
@@ -147,23 +154,51 @@ public Action Command_SetBotCounts(int client, int args)
 		}
 	}
 
-	if (realPlayersOnTeam > 1)
-	{
-		ReplyToCommand(client, "[Bot Stacker] Failed to set bot counts; you aren't the only player on your team.");
-		return Plugin_Handled;
-	}
-
-	int maxBotsCurrentlyAllowed = MaxClients - realPlayersOnTeam - 2;
+	int maxBotsCurrentlyAllowed = ((RoundToCeil(float(MaxClients) / float(2)) - 1)  * 2) - realPlayersOnTeam;
 	if (desiredBotsOnRealPlayersTeam + desiredBotsOnOtherTeam > maxBotsCurrentlyAllowed)
 	{
 		ReplyToCommand(client, "[Bot Stacker] Failed to set bot counts; selected bot counts are too high. Max bots you can currently add is %d.", maxBotsCurrentlyAllowed);
 		return Plugin_Handled;
 	}
 
-	_desiredBotsOnRealPlayersTeam = desiredBotsOnRealPlayersTeam;
-	_desiredBotsOnOtherTeam = desiredBotsOnOtherTeam;
-	SetBotsPerTeam(_teamWithRealPlayers == 2 ? _desiredBotsOnRealPlayersTeam : _desiredBotsOnOtherTeam, _teamWithRealPlayers == 3 ? _desiredBotsOnRealPlayersTeam : _desiredBotsOnOtherTeam);
-	ReplyToCommand(client, "[Bot Stacker] Allied bot count set to %d. Enemy bot count set to %d.", _desiredBotsOnRealPlayersTeam, _desiredBotsOnOtherTeam);
+	if (_voteStartTimestamp > 0)
+	{
+		ReplyToCommand(client, "[Bot Stacker] Another vote to set bots is in progress; cannot start another one.");
+		return Plugin_Handled;
+	}
+	_voteStartTimestamp = GetTime();
+
+	char requestorName[MAX_NAME_LENGTH];
+	GetClientName(client, requestorName, sizeof(requestorName));
+
+	for (int i = 0; i < sizeof(_clientsRealPlayerStatus); i++)
+	{
+		if (i != client && _clientsRealPlayerStatus[i] && GetClientTeam(i) == _teamWithRealPlayers)
+		{
+			Menu menu = new Menu(VoteMenuCallback);
+			menu.SetTitle("'%s' wants to set allied bot count to %d and enemy bot count to %d. Do you accept?", requestorName, desiredBotsOnRealPlayersTeam, desiredBotsOnOtherTeam);
+			menu.AddItem("yes", "Yes");
+			menu.AddItem("no", "No");
+			menu.Display(i, 9);
+		}
+	}
+
+	_votesNo = 0;
+	_votesYes = 1;
+
+	float delay = 0.25;
+	if (realPlayersOnTeam > 1)
+	{
+		delay = 10.0;
+		ReplyToCommand(client, "[Bot Stacker] Initiating vote to set allied bot count to %d and enemy bot count to %d.", desiredBotsOnRealPlayersTeam, desiredBotsOnOtherTeam);	
+	}
+
+	DataPack pack = new DataPack();
+	pack.WriteCell(_voteStartTimestamp);
+	pack.WriteCell(desiredBotsOnRealPlayersTeam);
+	pack.WriteCell(desiredBotsOnOtherTeam);
+
+	CreateTimer(delay, VoteFinish_AfterDelay, pack);
 	return Plugin_Handled;
 }
 
@@ -478,15 +513,7 @@ public void EnableBotStacking(int teamThatAPlayerIsLeaving, int teamThatAPlayerI
 	}
 
 	SetBotsPerTeam(_teamWithRealPlayers == 2 ? _desiredBotsOnRealPlayersTeam : _desiredBotsOnOtherTeam, _teamWithRealPlayers == 3 ? _desiredBotsOnRealPlayersTeam : _desiredBotsOnOtherTeam);
-	
-	if (realPlayersOnTeam == 1)
-	{
-		PrintToChatAll("[Bot Stacker] Allied bot count set to %d, enemy bot count set to %d. In single player mode you can set bot counts by typing: !setbotcounts <desiredAlliedBotCount> <desiredEnemyBotCount> (eg. '!setbotcounts 0 13').", _desiredBotsOnRealPlayersTeam, _desiredBotsOnOtherTeam);
-	}
-	else
-	{
-		PrintToChatAll("[Bot Stacker] Allied bot count set to %d, enemy bot count set to %d.", _desiredBotsOnRealPlayersTeam, _desiredBotsOnOtherTeam);
-	}
+	PrintToChatAll("[Bot Stacker] Allied bot count set to %d, enemy bot count set to %d. You can set bot counts by typing: !setbotcounts", _desiredBotsOnRealPlayersTeam, _desiredBotsOnOtherTeam);
 }
 
 public void DisableBotStacking(int teamThatAPlayerIsLeaving, int teamThatAPlayerIsJoining)
@@ -794,6 +821,58 @@ public void SetBotsPerTeam(int botsOnSecurity, int botsOnInsurgents)
 		if (botsOnInsurgents < currentBotsOnInsurgents)
 		{
 			KickXBotsFromTeam(3, currentBotsOnInsurgents - botsOnInsurgents);
+		}
+	}
+}
+
+public Action VoteFinish_AfterDelay(Handle timer, DataPack inputPack)
+{
+	inputPack.Reset();
+	int voteStartTimestamp = inputPack.ReadCell();
+	int desiredBotsOnRealPlayersTeam = inputPack.ReadCell();
+	int desiredBotsOnOtherTeam = inputPack.ReadCell();
+	CloseHandle(inputPack);
+
+	if (voteStartTimestamp != _voteStartTimestamp)
+	{
+		return;
+	}
+
+	_voteStartTimestamp = 0;
+
+	if (_votesNo > 0)
+	{
+		PrintToChatAll("[Bot Stacker] Vote to set bot counts failed.", _desiredBotsOnRealPlayersTeam, _desiredBotsOnOtherTeam);
+		return;
+	}
+
+	_desiredBotsOnRealPlayersTeam = desiredBotsOnRealPlayersTeam;
+	_desiredBotsOnOtherTeam = desiredBotsOnOtherTeam;
+	SetBotsPerTeam(_teamWithRealPlayers == 2 ? _desiredBotsOnRealPlayersTeam : _desiredBotsOnOtherTeam, _teamWithRealPlayers == 3 ? _desiredBotsOnRealPlayersTeam : _desiredBotsOnOtherTeam);
+	PrintToChatAll("[Bot Stacker] Vote to set bots counts passed. Allied bot count set to %d and enemy bot count set to %d.", _desiredBotsOnRealPlayersTeam, _desiredBotsOnOtherTeam);
+}
+
+public int VoteMenuCallback(Menu menu, MenuAction action, int param1, int param2)
+{
+	switch (action)
+	{
+		case MenuAction_Select:
+		{
+			char selectedItem[32];
+			menu.GetItem(param2, selectedItem, sizeof(selectedItem));
+			
+			if (StrEqual(selectedItem, "yes"))
+			{
+				_votesYes++;
+			}
+			else if (StrEqual(selectedItem, "no"))
+			{
+				_votesNo++;
+			}
+		}
+		case MenuAction_End:
+		{
+			delete menu;
 		}
 	}
 }

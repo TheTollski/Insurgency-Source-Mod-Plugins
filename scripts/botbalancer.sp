@@ -31,7 +31,6 @@ public void OnPluginStart()
 
 public void OnClientPutInServer(int client)
 {	
-	PrintToChatAll("[SM] OnClientPutInServer: %d", client);
 	bool isRealPlayer = !IsFakeClient(client);
 	_clientsRealPlayerStatus[client] = isRealPlayer;
 	
@@ -53,10 +52,10 @@ public void OnClientPutInServer(int client)
 
 public void OnClientDisconnect(int client)
 {
-	bool isRealPlayer = !IsFakeClient(client);
+	bool wasRealPlayer = _clientsRealPlayerStatus[client];
 	_clientsRealPlayerStatus[client] = false;
 	
-	if (!isRealPlayer)
+	if (!wasRealPlayer)
 	{
 		return;
 	}
@@ -89,7 +88,7 @@ public void Event_PlayerTeam(Event event, const char[] name, bool dontBroadcast)
 	int team = event.GetInt("team");
 	
 	int client = GetClientOfUserId(userid);
-	
+
 	bool isRealPlayer = !IsFakeClient(client);
 	
 	if (team < 2)
@@ -177,11 +176,11 @@ public void MoreThanOneRealPlayerIsInGame()
 	
 	if (securityTeamPlayerCount > insurgentsTeamPlayerCount)
 	{
-		MoveXBotsFromTeamToTeam(2, 3, (securityTeamPlayerCount - insurgentsTeamPlayerCount) / 2);
+		MoveXBotsFromTeamToTeam(2, 3, RoundToFloor(float((securityTeamPlayerCount - insurgentsTeamPlayerCount)) / float(2)));
 	}
 	else if (securityTeamPlayerCount < insurgentsTeamPlayerCount)
 	{
-		MoveXBotsFromTeamToTeam(3, 2, (securityTeamPlayerCount - insurgentsTeamPlayerCount) / 2);
+		MoveXBotsFromTeamToTeam(3, 2, RoundToFloor(float((securityTeamPlayerCount - insurgentsTeamPlayerCount)) / float(2)));
 	}
 }
 

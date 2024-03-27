@@ -22,7 +22,7 @@ Database _database = null;
 Handle _forceRespawnHandle = INVALID_HANDLE;
 int _normalBotQuota = 0;
 
-int _currentGameState = GAME_STATE_NOTHING;
+int _currentGameState = 0;
 int _currentVoteType = VOTE_TYPE_NONE;
 int _lastMapChangeTimestamp = 0;
 char _playerAuthIdInfo[MAXPLAYERS + 1][35];
@@ -122,7 +122,7 @@ public void OnClientDisconnect(int client)
 public void OnClientPostAdminCheck(int client)
 {
 	int timeSinceLastMapChange = GetTime() - _lastMapChangeTimestamp;
-	if (IsFakeClient(client) || _currentGameState == GAME_STATE_NOTHING || timeSinceLastMapChange < 60)
+	if (IsFakeClient(client) || _currentGameState == GAME_STATE_NOTHING || timeSinceLastMapChange < 120)
 	{
 		return;
 	}
@@ -226,8 +226,6 @@ public Action Command_StartVote(int client, int args)
 		ReplyToCommand(client, "\x07e50000[Tournament Helper] Usage: sm_startvote");
 		return Plugin_Handled;
 	}
-
-	// if (_isMatchInProgress)
 	
 	if (_currentGameState == GAME_STATE_VOTING || IsVoteInProgress())
 	{
@@ -239,7 +237,7 @@ public Action Command_StartVote(int client, int args)
 	int currentPlayersOnSecurity = GetPlayerCountOnTeam(2);
 	if (currentPlayersOnSecurity == 0 || currentPlayersOnInsurgents == 0)
 	{
-		// ReplyToCommand(client, "[Tournament Helper] Failed to start vote; both teams must have players.");
+		// ReplyToCommand(client, "[Tournament Helper] Failed to start vote; both teams must have players."); TODO UNCOMMENT
 		// return Plugin_Handled;
 	}
 
@@ -439,6 +437,9 @@ public void SetGameState(int gameState)
 		return;
 	}
 
+	ClearCountdownTimer();
+	ClearHintText();
+
 	int previousGameState = _currentGameState;
 	_currentGameState = gameState;
 
@@ -461,6 +462,7 @@ public void SetGameState(int gameState)
 		_conVar_mpIgnoreWinConditions.IntValue = 1;
 		_conVar_svVoteIssueChangelevelAllowed.IntValue = 1;
 
+		ShowHintText("When both teams are ready, type: !startvote");
 		return;
 	}
 
@@ -486,15 +488,17 @@ public void SetGameState(int gameState)
 			}
 		}
 
+		ShowHintText("Voting is in progress.");
 		return;
 	}
 	
 	if (_currentGameState == GAME_STATE_MATCH_STARTING)
 	{
-		PrintToChatAll("\x07f5bf03[Tournament Helper] Match is starting...");
+		PrintToChatAll("\x07f5bf03[Tournament Helper] Match is ready to start. Call an in-game vote to select the first map.");
 
-		_conVar_insBotQuota.IntValue = 0;
+		// _conVar_insBotQuota.IntValue = 0; TODO UNCOMMENT
 
+		ShowHintText("Match is ready to start. Call an in-game vote to select the first map.");
 		return;
 	}
 
@@ -514,7 +518,44 @@ public void SetGameState(int gameState)
 	PrintToChatAll("\x07e50000[Tournament Helper] Unsupported game state '%d'. This should not happen!", _currentGameState);
 }
 
-// Vote Helper Functions
+// 
+
+Handle _hintTextHandle = null;
+
+public void ClearHintText()
+{
+	if (_hintTextHandle != null)
+	{
+		KillTimer(_hintTextHandle);
+	}
+}
+
+public void ShowHintText(const char[] hintText)
+{
+	if (_hintTextHandle != null)
+	{
+		KillTimer(_hintTextHandle);
+	}
+
+	PrintHintTextToAll(hintText);
+
+	DataPack pack = new DataPack();
+	pack.WriteString(hintText);
+	_hintTextHandle = CreateTimer(5.0, ShowHintText_AfterDelay, pack, TIMER_REPEAT);
+}
+
+public Action ShowHintText_AfterDelay(Handle timer, DataPack inputPack)
+{
+	inputPack.Reset();
+	char hintText[256];
+	inputPack.ReadString(hintText, sizeof(hintText));
+	// Don't close the inputPack handle since it is run on repeat.
+
+	PrintHintTextToAll(hintText);
+	return Plugin_Continue;
+}
+
+// Voting Functions
 
 public int Handle_VoteMenu(Menu menu, MenuAction action, int param1, int param2)
 {
@@ -583,8 +624,8 @@ public void Handle_VoteResults(
 				PrintToChatAll("[Tournament Helper] Teams did not agree on an option.");	
 			}
 
-			StartVote(VOTE_TYPE_WINCOUNT, null);
-			return;
+			// StartVote(VOTE_TYPE_WINCOUNT, null); TODO UNCOMMENT
+			// return;
 		}
 
 		char item[64];
@@ -690,35 +731,6 @@ public int GetTeamVoteItemIndex(
 	return -team;
 }
 
-int _countdownTimeRemaining = 0;
-Handle _countdownTimeRemainingHandle = null;
-public void ShowCountdownTimer(int seconds)
-{
-	if (_countdownTimeRemainingHandle != null)
-	{
-		KillTimer(_countdownTimeRemainingHandle);
-	}
-
-	PrintCenterTextAll("Time remaining for current vote: %ds", seconds);
-
-	_countdownTimeRemaining = seconds - 1;
-	_countdownTimeRemainingHandle = CreateTimer(1.0, ShowCountdownTimer_AfterDelay, _, TIMER_REPEAT);
-}
-
-public Action ShowCountdownTimer_AfterDelay(Handle timer)
-{
-	if (_countdownTimeRemaining <= 0)
-	{
-		_countdownTimeRemainingHandle = null;
-		return Plugin_Stop;
-	}
-
-	PrintCenterTextAll("Time remaining for current vote: %ds", _countdownTimeRemaining);
-
-	_countdownTimeRemaining--;
-	return Plugin_Continue;
-}
-
 public int StartVote(int voteType, DataPack inputPack)
 {
 	if (_currentVoteType != voteType - 1 && _currentVoteType != voteType)
@@ -754,15 +766,15 @@ public int StartVote(int voteType, DataPack inputPack)
 	return 0;
 }
 
-Handle _mapArray = null;
-int mapSerial = -1;
-
 public int StartVoteHelper_PopulateWinCountMenu(Menu menu)
 {
 	menu.SetTitle("Select amount of game wins required to win the match.");
 	menu.AddItem("1", "Best 1 out of 1 maps.");
 	menu.AddItem("2", "Best 2 out of 3 maps.");
 }
+
+Handle _mapArray = null;
+int mapSerial = -1;
 
 public int StartVoteHelper_PopulateMapMenu(Menu menu)
 {
@@ -817,6 +829,48 @@ public int StartVoteHelper_PopulateReadyMenu(Menu menu, DataPack inputPack)
 	menu.SetTitle("'%s' has initiated a vote to start the match. Is your team ready?", requestorName);
 	menu.AddItem("yes", "Yes");
 	menu.AddItem("no", "No");
+}
+
+// Countdown Timer Functions
+
+int _countdownTimeRemaining = 0;
+Handle _countdownTimeRemainingHandle = null;
+
+public void ClearCountdownTimer()
+{
+	if (_countdownTimeRemainingHandle != null)
+	{
+		KillTimer(_countdownTimeRemainingHandle);
+	}
+
+	PrintCenterTextAll("");
+}
+
+public void ShowCountdownTimer(int seconds)
+{
+	if (_countdownTimeRemainingHandle != null)
+	{
+		KillTimer(_countdownTimeRemainingHandle);
+	}
+
+	PrintCenterTextAll("Time remaining for current vote: %ds", seconds);
+
+	_countdownTimeRemaining = seconds - 1;
+	_countdownTimeRemainingHandle = CreateTimer(1.0, ShowCountdownTimer_AfterDelay, _, TIMER_REPEAT);
+}
+
+public Action ShowCountdownTimer_AfterDelay(Handle timer)
+{
+	if (_countdownTimeRemaining <= 0)
+	{
+		_countdownTimeRemainingHandle = null;
+		return Plugin_Stop;
+	}
+
+	PrintCenterTextAll("Time remaining for current vote: %ds", _countdownTimeRemaining);
+
+	_countdownTimeRemaining--;
+	return Plugin_Continue;
 }
 
 // Database Functions
@@ -902,6 +956,7 @@ public void SqlQueryCallback_LoadState1(Handle database, Handle handle, const ch
 		ThrowError("SQL query error in SqlQueryCallback_LoadState1: '%s'", sError);
 	}
 
+	int currentGameState = 0;
 	while (SQL_FetchRow(handle))
 	{
 		char key[64];
@@ -922,7 +977,7 @@ public void SqlQueryCallback_LoadState1(Handle database, Handle handle, const ch
 		}
 		else if (StrEqual(key, "currentGameState"))
 		{
-			_currentGameState = value;
+			currentGameState = value;
 		}
 		else if (StrEqual(key, "currentVoteType"))
 		{
@@ -950,9 +1005,13 @@ public void SqlQueryCallback_LoadState1(Handle database, Handle handle, const ch
 		}
 	}
 
-	if (_currentGameState == GAME_STATE_MATCH_STARTING)
+	if (currentGameState == GAME_STATE_MATCH_STARTING || currentGameState == GAME_STATE_MATCH_IN_PROGRESS)
 	{
 		SetGameState(GAME_STATE_MATCH_IN_PROGRESS);
+	}
+	else
+	{
+		SetGameState(GAME_STATE_NOTHING);
 	}
 }
 

@@ -4,7 +4,7 @@
 #pragma semicolon 1
 #pragma newdecls required
 
-#define PLUGIN_VERSION "1.00"
+#define PLUGIN_VERSION "1.01"
 
 StringMap _authIdDisconnectTimestampMap;
 Database _database;
@@ -207,7 +207,7 @@ public Action Command_AllStats(int client, int args)
 		_database, queryString, sizeof(queryString),
 		"SELECT * FROM sps_players WHERE RecordType = '%s' ORDER BY %s DESC LIMIT %d OFFSET %d",
 		recordType, orderByColumn, pageSize, offset);
-	SQL_TQuery(_database, SqlQueryCallback_Command_AllStats1, queryString, GetClientUserId(client));
+	SQL_TQuery(_database, SqlQueryCallback_Command_AllStats1, queryString, client);
 	return Plugin_Handled;
 }
 
@@ -242,7 +242,7 @@ public Action Command_AuditLogs(int client, int args)
 
 	char queryString[256];
 	SQL_FormatQuery(_database, queryString, sizeof(queryString), "SELECT * FROM sps_auditlogs ORDER BY Timestamp DESC LIMIT %d OFFSET %d", pageSize, offset);
-	SQL_TQuery(_database, SqlQueryCallback_Command_AuditLogs1, queryString, GetClientUserId(client));
+	SQL_TQuery(_database, SqlQueryCallback_Command_AuditLogs1, queryString, client);
 	return Plugin_Handled;
 }
 
@@ -282,6 +282,12 @@ public Action Command_MyStats(int client, int args)
 		return Plugin_Handled;
 	}
 
+	if (client == 0)
+	{
+		ReplyToCommand(client, "[Simple Player Stats] You can only run this command from a game client.");
+		return Plugin_Handled;
+	}
+
 	char authId[35];
 	GetClientAuthId(client, AuthId_Steam2, authId, sizeof(authId));
 
@@ -296,7 +302,7 @@ public Action Command_MyStats(int client, int args)
 
 	char queryString[256];
 	SQL_FormatQuery(_database, queryString, sizeof(queryString), "SELECT * FROM sps_players WHERE AuthId = '%s' AND RecordType = '%s'", authId, recordType);
-	SQL_TQuery(_database, SqlQueryCallback_Command_MyStats1, queryString, GetClientUserId(client));
+	SQL_TQuery(_database, SqlQueryCallback_Command_MyStats1, queryString, client);
 	return Plugin_Handled;
 }
 
@@ -706,26 +712,20 @@ public void ResetStartupStats()
 	SQL_TQuery(_database, SqlQueryCallback_Command_ResetStatsCustom1, queryString);
 }
 
-public void SqlQueryCallback_Command_AllStats1(Handle database, Handle handle, const char[] sError, int data)
+public void SqlQueryCallback_Command_AllStats1(Handle database, Handle handle, const char[] sError, int client)
 {
 	if (!handle)
 	{
-		ThrowError("SQL query error in SqlQueryCallback_Command_AllStats1: %d, '%s'", data, sError);
-	}
-
-	int client = GetClientOfUserId(data);
-	if (client == 0)
-	{
-		return;
+		ThrowError("SQL query error in SqlQueryCallback_Command_AllStats1: %d, '%s'", client, sError);
 	}
 
 	if (SQL_GetRowCount(handle) == 0)
 	{
-		PrintToConsole(client, "[Simple Player Stats] No rows found for selected query.");
+		ReplyToCommand(client, "[Simple Player Stats] No rows found for selected query.");
 		return;
 	}
 
-	PrintToConsole(client, "PlayerName      | FirstConn  | LastConn   | TotConns | PlayTime  | EBKills  | EPKills  | DeathsEB | DeathsEP | Suicides | DeathsOther | Objectives");
+	ReplyToCommand(client, "PlayerName      | FirstConn  | LastConn   | TotConns | PlayTime  | EBKills  | EPKills  | DeathsEB | DeathsEP | Suicides | DeathsOther | Objectives");
 	while (SQL_FetchRow(handle))
 	{
 		char playerName[21]; // Cut off anything past 20 characters in a player's name.
@@ -751,7 +751,7 @@ public void SqlQueryCallback_Command_AllStats1(Handle database, Handle handle, c
 		char lastConnectionDate[16]; 
 		FormatTime(lastConnectionDate, sizeof(lastConnectionDate), "%F", lastConnectionTimestamp);
 
-		PrintToConsole(
+		ReplyToCommand(
 			client,
 			"%15s | %10s | %10s | %8d | %8.1fh | %8d | %8d | %8d | %8d | %8d | %11d | %10d",
 			playerName, firstConnectionDate, lastConnectionDate,
@@ -762,26 +762,20 @@ public void SqlQueryCallback_Command_AllStats1(Handle database, Handle handle, c
 	}
 }
 
-public void SqlQueryCallback_Command_AuditLogs1(Handle database, Handle handle, const char[] sError, int data)
+public void SqlQueryCallback_Command_AuditLogs1(Handle database, Handle handle, const char[] sError, int client)
 {
 	if (!handle)
 	{
-		ThrowError("SQL query error in SqlQueryCallback_Command_AuditLogs1: %d, '%s'", data, sError);
-	}
-
-	int client = GetClientOfUserId(data);
-	if (client == 0)
-	{
-		return;
+		ThrowError("SQL query error in SqlQueryCallback_Command_AuditLogs1: %d, '%s'", client, sError);
 	}
 
 	if (SQL_GetRowCount(handle) == 0)
 	{
-		PrintToConsole(client, "[Simple Player Stats] No rows found for selected query.");
+		ReplyToCommand(client, "[Simple Player Stats] No rows found for selected query.");
 		return;
 	}
 
-	PrintToConsole(client, "Timestamp        | Description");
+	ReplyToCommand(client, "Timestamp        | Description");
 	while (SQL_FetchRow(handle))
 	{
 		int timestamp = SQL_FetchInt(handle, 0);
@@ -791,21 +785,15 @@ public void SqlQueryCallback_Command_AuditLogs1(Handle database, Handle handle, 
 		char dateTime[32]; 
 		FormatTime(dateTime, sizeof(dateTime), "%F %R", timestamp);
 
-		PrintToConsole(client, "%16s | %s", dateTime, description);
+		ReplyToCommand(client, "%16s | %s", dateTime, description);
 	}
 }
 
-public void SqlQueryCallback_Command_MyStats1(Handle database, Handle handle, const char[] sError, int data)
+public void SqlQueryCallback_Command_MyStats1(Handle database, Handle handle, const char[] sError, int client)
 {
 	if (!handle)
 	{
-		ThrowError("SQL query error in SqlQueryCallback_Command_MyStats1: %d, '%s'", data, sError);
-	}
-
-	int client = GetClientOfUserId(data);
-	if (client == 0)
-	{
-		return;
+		ThrowError("SQL query error in SqlQueryCallback_Command_MyStats1: %d, '%s'", client, sError);
 	}
 
 	char authId[35];
@@ -834,7 +822,7 @@ public void SqlQueryCallback_Command_MyStats1(Handle database, Handle handle, co
 	int flagsPickedUp = SQL_FetchInt(handle, 18);
 	int objectivesDestroyed = SQL_FetchInt(handle, 19);
 
-	PrintToConsole(
+	ReplyToCommand(
 		client,
 		"[Simple Player Stats] Your Stats -- ConnectionCount: %d - ConnectedTime: %dh%dm - ActiveTime: %dh%dm - TotalKills: %d (%d enemy bots, %d enemy players, %d team) - TotalDeaths: %d (%d enemy bots, %d enemy players, %d self, %d team, %d other) - Objectives: %d (%d control points captured, %d flags picked up, %d flags captured, %d objectives destroyed)",
 		connectionCount, connectedTime / 3600, connectedTime % 3600 / 60, activeTime / 3600, activeTime % 3600 / 60,

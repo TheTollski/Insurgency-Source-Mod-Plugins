@@ -4,7 +4,7 @@
 #pragma semicolon 1
 #pragma newdecls required
 
-#define PLUGIN_VERSION "1.04"
+#define PLUGIN_VERSION "1.05"
 
 int _maxPlayersToEnableBotStacking = 3;
 
@@ -260,7 +260,7 @@ public void EnableBotStacking(int teamThatAPlayerIsLeaving, int teamThatAPlayerI
 		PrintToChatAll("[Bot Stacker] All players are on one team. Enabling bot stacking.");
 		_botStackingIsEnabled = true;
 		
-		ChangeBotQuota(8, true); // todo: set quota based on max players
+		ChangeBotQuota(RoundToFloor(float(MaxClients) / float(2)) - 1, true);
 		
 		ConVar mpTeamsUnbalanceLimitConVar = FindConVar("mp_teams_unbalance_limit");
 		PrintToServer("[Bot Stacker] Changing mp_teams_unbalance_limit from %d to 0.", mpTeamsUnbalanceLimitConVar.IntValue);
@@ -326,12 +326,12 @@ public void EnableBotStacking(int teamThatAPlayerIsLeaving, int teamThatAPlayerI
 	if (realPlayersOnTeam == 1)
 	{
 		_desiredBotsOnRealPlayersTeam = 1;
-		_desiredBotsOnOtherTeam = 10;
+		_desiredBotsOnOtherTeam = 8;
 	}
 	else if (realPlayersOnTeam == 2)
 	{
 		_desiredBotsOnRealPlayersTeam = 0;
-		_desiredBotsOnOtherTeam = 12;
+		_desiredBotsOnOtherTeam = 10;
 	}
 	else if (realPlayersOnTeam == 3)
 	{
@@ -340,7 +340,14 @@ public void EnableBotStacking(int teamThatAPlayerIsLeaving, int teamThatAPlayerI
 	}
 	else
 	{
-		PrintToChatAll("[Bot Stacker] Bot stacking not supported with %d real players on team.", realPlayersOnTeam);
+		PrintToConsoleAll("[Bot Stacker] Bot stacking not supported with %d real players on team.", realPlayersOnTeam);
+		DisableBotStacking();
+		return;
+	}
+
+	if (_desiredBotsOnOtherTeam > MaxClients - realPlayersOnTeam - _desiredBotsOnRealPlayersTeam - 1)
+	{
+		_desiredBotsOnOtherTeam = MaxClients - realPlayersOnTeam - _desiredBotsOnRealPlayersTeam - 1;
 	}
 
 	SetBotsPerTeam(_teamWithRealPlayers == 2 ? _desiredBotsOnRealPlayersTeam : _desiredBotsOnOtherTeam, _teamWithRealPlayers == 3 ? _desiredBotsOnRealPlayersTeam : _desiredBotsOnOtherTeam);

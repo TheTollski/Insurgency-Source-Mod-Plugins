@@ -4,7 +4,7 @@
 #pragma semicolon 1
 #pragma newdecls required
 
-#define PLUGIN_VERSION "1.06"
+#define PLUGIN_VERSION "1.07"
 
 int _maxPlayersToEnableBotStacking = 3;
 
@@ -14,8 +14,11 @@ bool _clientsRealPlayerStatus[MAXPLAYERS + 1] = { false, ... };
 int _desiredBotsOnRealPlayersTeam = 0;
 int _desiredBotsOnOtherTeam = 0;
 int _normalBotQuota = 0;
+int _normalTeamsUnbalanceLimit = 0;
 int _teamWithRealPlayers = 0;
 bool _pluginIsChangingInsBotQuota = false;
+
+ConVar _cvarShufflePlayersAfterStackingDisabled = null;
 
 public Plugin myinfo = 
 {
@@ -38,10 +41,11 @@ public void OnPluginStart()
 	HookEvent("round_end", Event_RoundEnd);
 
 	RegConsoleCmd("sm_setbotcounts", Command_SetBotCounts, "Sets desired bot counts for each team.");
-	//RegConsoleCmd("sm_testplayerjoiningsecurity", Command_TestPlayerJoiningSecurity, "Acts as if a player is joining Security.");
-	//RegConsoleCmd("sm_testplayerjoininginsurgents", Command_TestPlayerJoiningInsurgents, "Acts as if a player is joining Insurgents.");
-	//RegConsoleCmd("sm_testplayerleavingsecurity", Command_TestPlayerLeavingSecurity, "Acts as if a player is leaving Security.");
-	//RegConsoleCmd("sm_testplayerleavinginsurgents", Command_TestPlayerLeavingInsurgents, "Acts as if a player is leaving Insurgents.");
+	RegConsoleCmd("sm_testplayerjoiningteam", Command_TestPlayerJoiningTeam, "Acts as if a real player is joining team.");
+	RegConsoleCmd("sm_testplayerleavingteam", Command_TestPlayerLeavingTeam, "Acts as if a real player is leaving team.");
+
+	_cvarShufflePlayersAfterStackingDisabled = CreateConVar("sm_botstacker_shuffle_players", "1", "Shuffle players to balance teams after stacking disabled?");
+	AutoExecConfig(true, "botstacker");
 }
 
 public bool OnClientConnect(int client, char[] rejectmsg, int maxlen)
@@ -110,18 +114,6 @@ public void OnMapStart()
 
 }
 
-// Commands
-public Action Command_TestPlayerJoiningSecurity(int client, int args)
-{
-	if (args != 0) {
-		ReplyToCommand(client, "[Bot Stacker] Usage: sm_testplayerjoiningsecurity");
-		return Plugin_Handled;
-	}
-	
-	CheckIfBotStackingStatusShouldBeEnabledAndSetIt(0, 2);
-	return Plugin_Handled;
-}
-
 public Action Command_SetBotCounts(int client, int args)
 {
 	if (args != 2) {
@@ -172,36 +164,33 @@ public Action Command_SetBotCounts(int client, int args)
 	return Plugin_Handled;
 }
 
-public Action Command_TestPlayerJoiningInsurgents(int client, int args)
+public Action Command_TestPlayerJoiningTeam(int client, int args)
 {
-	if (args != 0) {
-		ReplyToCommand(client, "[Bot Stacker] Usage: sm_testplayerjoininginsurgents");
+	if (args != 1) {
+		ReplyToCommand(client, "[Bot Stacker] Usage: sm_testplayerjoiningteam <team#>");
 		return Plugin_Handled;
 	}
+
+	char arg1[32];
+	GetCmdArg(1, arg1, sizeof(arg1));
+	int team = StringToInt(arg1);
 	
-	CheckIfBotStackingStatusShouldBeEnabledAndSetIt(0, 3);
+	CheckIfBotStackingStatusShouldBeEnabledAndSetIt(0, team);
 	return Plugin_Handled;
 }
 
-public Action Command_TestPlayerLeavingSecurity(int client, int args)
+public Action Command_TestPlayerLeavingTeam(int client, int args)
 {
-	if (args != 0) {
-		ReplyToCommand(client, "[Bot Stacker] Usage: sm_testplayerleavingsecurity");
+	if (args != 1) {
+		ReplyToCommand(client, "[Bot Stacker] Usage: sm_testplayerleavingteam <team#>");
 		return Plugin_Handled;
 	}
-	
-	CheckIfBotStackingStatusShouldBeEnabledAndSetIt(2, 0);
-	return Plugin_Handled;
-}
 
-public Action Command_TestPlayerLeavingInsurgents(int client, int args)
-{
-	if (args != 0) {
-		ReplyToCommand(client, "[Bot Stacker] Usage: sm_testplayerleavinginsurgents");
-		return Plugin_Handled;
-	}
+	char arg1[32];
+	GetCmdArg(1, arg1, sizeof(arg1));
+	int team = StringToInt(arg1);
 	
-	CheckIfBotStackingStatusShouldBeEnabledAndSetIt(3, 0);
+	CheckIfBotStackingStatusShouldBeEnabledAndSetIt(team, 0);
 	return Plugin_Handled;
 }
 
@@ -294,7 +283,7 @@ public bool CheckIfBotStackingStatusShouldBeEnabledAndSetIt(int teamThatAPlayerI
 	}
 	else
 	{
-		DisableBotStacking();
+		DisableBotStacking(teamThatAPlayerIsLeaving, teamThatAPlayerIsJoining);
 	}
 }
 
@@ -346,14 +335,18 @@ public void EnableBotStacking(int teamThatAPlayerIsLeaving, int teamThatAPlayerI
 	if (!_botStackingIsEnabled)
 	{
 		PrintToServer("[Bot Stacker] EnableBotStacking");
-		PrintToChatAll("[Bot Stacker] All players are on one team. Enabling bot stacking.");
+		PrintToChatAll("[Bot Stacker] All players are on one team: enabling bot stacking.");
 		_botStackingIsEnabled = true;
 		
 		ChangeBotQuota(RoundToFloor(float(MaxClients) / float(2)) - 1, true);
 		
 		ConVar mpTeamsUnbalanceLimitConVar = FindConVar("mp_teams_unbalance_limit");
 		PrintToServer("[Bot Stacker] Changing mp_teams_unbalance_limit from %d to 0.", mpTeamsUnbalanceLimitConVar.IntValue);
+		_normalTeamsUnbalanceLimit = mpTeamsUnbalanceLimitConVar.IntValue;
+		int mpTeamsUnbalanceLimitConVarFlags = mpTeamsUnbalanceLimitConVar.Flags;
+		mpTeamsUnbalanceLimitConVar.Flags = 0;
 		mpTeamsUnbalanceLimitConVar.IntValue = 0;
+		mpTeamsUnbalanceLimitConVar.Flags = mpTeamsUnbalanceLimitConVarFlags;
 	}
 
 	int realPlayersOnSecurityTeam = 0;
@@ -390,7 +383,7 @@ public void EnableBotStacking(int teamThatAPlayerIsLeaving, int teamThatAPlayerI
 	if (realPlayersOnSecurityTeam > 0 && realPlayersOnInsurgentsTeam > 0)
 	{
 		PrintToConsoleAll("[Bot Stacker] Trying to enable bot stacking but there seem to be real players on both teams.");
-		DisableBotStacking();
+		DisableBotStacking(teamThatAPlayerIsLeaving, teamThatAPlayerIsJoining);
 		return;
 	}
 
@@ -408,7 +401,7 @@ public void EnableBotStacking(int teamThatAPlayerIsLeaving, int teamThatAPlayerI
 	else
 	{
 		PrintToConsoleAll("[Bot Stacker] Trying to enable bot stacking but there don't seem to be real players on either teams.");
-		DisableBotStacking();
+		DisableBotStacking(teamThatAPlayerIsLeaving, teamThatAPlayerIsJoining);
 		return;
 	}
 	
@@ -430,7 +423,7 @@ public void EnableBotStacking(int teamThatAPlayerIsLeaving, int teamThatAPlayerI
 	else
 	{
 		PrintToConsoleAll("[Bot Stacker] Bot stacking not supported with %d real players on team.", realPlayersOnTeam);
-		DisableBotStacking();
+		DisableBotStacking(teamThatAPlayerIsLeaving, teamThatAPlayerIsJoining);
 		return;
 	}
 
@@ -444,15 +437,15 @@ public void EnableBotStacking(int teamThatAPlayerIsLeaving, int teamThatAPlayerI
 	
 	if (realPlayersOnTeam == 1)
 	{
-		PrintToChatAll("[Bot Stacker] Allied bot count set to %d. Enemy bot count set to %d. In single player mode you can set bot counts by typing: !setbotcounts <desiredAlliedBotCount> <desiredEnemyBotCount> (eg. '!setbotcounts 0 13').", _desiredBotsOnRealPlayersTeam, _desiredBotsOnOtherTeam);
+		PrintToChatAll("[Bot Stacker] Allied bot count set to %d, enemy bot count set to %d. In single player mode you can set bot counts by typing: !setbotcounts <desiredAlliedBotCount> <desiredEnemyBotCount> (eg. '!setbotcounts 0 13').", _desiredBotsOnRealPlayersTeam, _desiredBotsOnOtherTeam);
 	}
 	else
 	{
-		PrintToChatAll("[Bot Stacker] Allied bot count set to %d. Enemy bot count set to %d.", _desiredBotsOnRealPlayersTeam, _desiredBotsOnOtherTeam);
+		PrintToChatAll("[Bot Stacker] Allied bot count set to %d, enemy bot count set to %d.", _desiredBotsOnRealPlayersTeam, _desiredBotsOnOtherTeam);
 	}
 }
 
-public void DisableBotStacking()
+public void DisableBotStacking(int teamThatAPlayerIsLeaving, int teamThatAPlayerIsJoining)
 {
 	if (!_botStackingIsEnabled)
 	{
@@ -460,7 +453,7 @@ public void DisableBotStacking()
 	}
 	
 	PrintToServer("[Bot Stacker] DisableBotStacking");
-	PrintToChatAll("[Bot Stacker] More than %d players in server or players are not on one team. Disabling bot stacking.", _maxPlayersToEnableBotStacking);
+	PrintToChatAll("[Bot Stacker] More than %d players are in the server or players are on different teams: disabling bot stacking.", _maxPlayersToEnableBotStacking);
 	_botStackingIsEnabled = false;
 	_desiredBotsOnRealPlayersTeam = 0;
 	_desiredBotsOnOtherTeam = 0;
@@ -469,19 +462,78 @@ public void DisableBotStacking()
 	ChangeBotQuota(_normalBotQuota, false);
 	
 	ConVar mpTeamsUnbalanceLimitConVar = FindConVar("mp_teams_unbalance_limit");
-	PrintToServer("[Bot Stacker] Changing mp_teams_unbalance_limit from %d to 1.", mpTeamsUnbalanceLimitConVar.IntValue);
-	mpTeamsUnbalanceLimitConVar.IntValue = 1;
+	PrintToServer("[Bot Stacker] Changing mp_teams_unbalance_limit from %d to %d.", mpTeamsUnbalanceLimitConVar.IntValue, _normalTeamsUnbalanceLimit);
+	int mpTeamsUnbalanceLimitConVarFlags = mpTeamsUnbalanceLimitConVar.Flags;
+	mpTeamsUnbalanceLimitConVar.Flags = 0;
+	mpTeamsUnbalanceLimitConVar.IntValue = _normalTeamsUnbalanceLimit;
+	mpTeamsUnbalanceLimitConVar.Flags = mpTeamsUnbalanceLimitConVarFlags;
 
-	int securityTeamPlayerCount = GetTeamClientCount(2);
-	int insurgentsTeamPlayerCount = GetTeamClientCount(3);
+	int realPlayerChangeSecurity = 0;
+	int realPlayerChangeInsurgents = 0;
+	if (teamThatAPlayerIsJoining == 2) {
+		realPlayerChangeSecurity++;
+	}
+	else if (teamThatAPlayerIsJoining == 3) {
+		realPlayerChangeInsurgents++;
+	}
+
+	if (teamThatAPlayerIsLeaving == 2) {
+		realPlayerChangeSecurity--;
+	}
+	else if (teamThatAPlayerIsLeaving == 3) {
+		realPlayerChangeInsurgents--;
+	}
+
+	if (_cvarShufflePlayersAfterStackingDisabled.BoolValue)
+	{
+		int realPlayersOnSecurityTeam = realPlayerChangeSecurity;
+		int realPlayersOnInsurgentsTeam = realPlayerChangeInsurgents;
+
+		for (int i = 0; i < sizeof(_clientsRealPlayerStatus); i++)
+		{
+			if (_clientsRealPlayerStatus[i])
+			{
+				if (GetClientTeam(i) == 2)
+				{
+					realPlayersOnSecurityTeam++;
+				}
+				else if (GetClientTeam(i) == 3)
+				{
+					realPlayersOnInsurgentsTeam++;
+				}
+			}
+		}
+
+		int realPlayerDifference = realPlayersOnSecurityTeam - realPlayersOnInsurgentsTeam;
+		realPlayerDifference = realPlayerDifference < 0 ? -realPlayerDifference : realPlayerDifference;
+		int realPlayersToMove = RoundToFloor(float((realPlayerDifference)) / float(2));
+		if (realPlayersOnSecurityTeam > realPlayersOnInsurgentsTeam)
+		{
+			realPlayerChangeSecurity -= realPlayersToMove;
+			realPlayerChangeInsurgents += realPlayersToMove;
+			MoveXPlayersFromTeamToTeam(2, 3, realPlayersToMove);
+		}
+		else if (realPlayersOnSecurityTeam < realPlayersOnInsurgentsTeam)
+		{
+			realPlayerChangeSecurity += realPlayersToMove;
+			realPlayerChangeInsurgents -= realPlayersToMove;
+			MoveXBotsFromTeamToTeam(3, 2, realPlayersToMove);
+		}
+	}
+
+	int securityTeamPlayerCount = GetTeamClientCount(2) + realPlayerChangeSecurity;
+	int insurgentsTeamPlayerCount = GetTeamClientCount(3) + realPlayerChangeInsurgents;
 	
+	int playerDifference = securityTeamPlayerCount - insurgentsTeamPlayerCount;
+	playerDifference = playerDifference < 0 ? -playerDifference : playerDifference;
+	int botsToMove = RoundToCeil(float((playerDifference)) / float(2));
 	if (securityTeamPlayerCount > insurgentsTeamPlayerCount)
 	{
-		MoveXBotsFromTeamToTeam(2, 3, RoundToCeil(float((securityTeamPlayerCount - insurgentsTeamPlayerCount)) / float(2)));
+		MoveXBotsFromTeamToTeam(2, 3, botsToMove);
 	}
 	else if (securityTeamPlayerCount < insurgentsTeamPlayerCount)
 	{
-		MoveXBotsFromTeamToTeam(3, 2, RoundToCeil(float((insurgentsTeamPlayerCount - securityTeamPlayerCount)) / float(2)));
+		MoveXBotsFromTeamToTeam(3, 2, botsToMove);
 	}
 }
 
@@ -524,6 +576,11 @@ public int GetRealPlayerCount()
 public void KickXBotsFromTeam(int team, int botsToKick)
 {
 	//PrintToChatAll("KickXBotsFromTeam: %d, %d", team, botsToKick);
+	if (botsToKick == 0)
+	{
+		return;
+	}
+
 	int botsKicked = 0;
 	for (int i = 1; i < MaxClients + 1; i++)
 	{
@@ -542,6 +599,12 @@ public void KickXBotsFromTeam(int team, int botsToKick)
 public void MoveXBotsFromTeamToTeam(int oldTeam, int newTeam, int botsToMove)
 {
 	//PrintToChatAll("MoveXBotsFromTeamToTeam: %d, %d, %d", oldTeam, newTeam, botsToMove);
+
+	if (botsToMove == 0)
+	{
+		return;
+	}
+
 	int botsMoved = 0;
 	for (int i = 1; i < MaxClients + 1; i++)
 	{
@@ -550,6 +613,30 @@ public void MoveXBotsFromTeamToTeam(int oldTeam, int newTeam, int botsToMove)
 			ChangeClientTeam(i, newTeam);
 			botsMoved++;
 			if (botsMoved == botsToMove)
+			{
+				return;
+			}
+		}
+	}
+}
+
+public void MoveXPlayersFromTeamToTeam(int oldTeam, int newTeam, int playersToMove)
+{
+	//PrintToChatAll("MoveXPlayersFromTeamToTeam: %d, %d, %d", oldTeam, newTeam, playersToMove);
+	if (playersToMove == 0)
+	{
+		return;
+	}
+
+	int playersMoved = 0;
+	for (int i = MaxClients; i >= 0; i--)
+	{
+		if (IsClientInGame(i) && !IsFakeClient(i) && GetClientTeam(i) == oldTeam)
+		{
+			ChangeClientTeam(i, newTeam);
+			PrintToChat(i, "[Bot Stacker] You have been moved to the other team.");
+			playersMoved++;
+			if (playersMoved == playersToMove)
 			{
 				return;
 			}

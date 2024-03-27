@@ -4,7 +4,7 @@
 #pragma semicolon 1
 #pragma newdecls required
 
-#define PLUGIN_VERSION "1.01"
+#define PLUGIN_VERSION "1.02"
 
 bool _isEnabled = false;
 int _laserEntity = -1;
@@ -24,6 +24,7 @@ public void OnPluginStart()
 {
 	CreateConVar("sm_demolitionhelper_version", PLUGIN_VERSION, "Standard plugin version ConVar. Please don't change me!", FCVAR_REPLICATED|FCVAR_NOTIFY|FCVAR_DONTRECORD);
 
+	HookEvent("controlpoint_starttouch", Event_ControlpointStartTouch);
 	HookEvent("round_start", Event_RoundStart);
 }
 
@@ -86,9 +87,35 @@ public void OnMapStart()
 	_normalMpIgnoreWinConditionsValue = mpIgnoreWinConditionsConVar.IntValue;
 }
 
+//
 // Commands
+//
 
+//
 // Hooks
+//
+
+public void Event_ControlpointStartTouch(Event event, const char[] name, bool dontBroadcast)
+{
+	int area = event.GetInt("area");
+	//int obj = event.GetInt("object");
+	//int owner = event.GetInt("owner");
+	int playerClient = event.GetInt("player");
+	//int team = event.GetInt("team");
+	//int type = event.GetInt("type");
+	//PrintToChatAll("\x05controlpoint_starttouch. area: %d, object: %d, owner: %d, player: %d, team: %d, type: %d", area, obj, owner, playerClient, team, type);
+
+	if (!_isEnabled || IsFakeClient(playerClient) || playerClient != GetBombEntityOrAncestor())
+	{
+		return;
+	}
+
+	int playerTeam = GetClientTeam(playerClient);
+	if ((playerTeam == 2 && area == 2) || (playerTeam == 3 && area == 0))
+	{
+		PrintHintText(playerClient, "Look down on the bomb zone and hold the use key to plant the bomb.");
+	}
+}
 
 public void Event_RoundStart(Event event, const char[] name, bool dontBroadcast)
 {
@@ -97,8 +124,13 @@ public void Event_RoundStart(Event event, const char[] name, bool dontBroadcast)
 		return;
 	}
 	
-	PrintCenterTextAll("Get the bomb and plant it at the enemy's base!");
 	MarkBomb();
+	CreateTimer(0.25, Event_RoundStart_AfterDelay);
+}
+
+public Action Event_RoundStart_AfterDelay(Handle timer)
+{
+	PrintHintTextToAll("Get the bomb and plant it at the enemy's base!");
 }
 
 // 
@@ -140,6 +172,24 @@ public void OnBombPickedUp(int teamWithBomb)
 	UnmarkBomb();
 }
 
+public int GetBombEntityOrAncestor()
+{
+	int entity = -1;
+
+	int bombEntity = GetEntityByNameAndClassName("bomb", "prop_dynamic_override");
+	if (bombEntity > -1)
+	{
+		entity = bombEntity;
+		int entityParent = -1;
+		while ((entityParent = GetEntPropEnt(entity, Prop_Send, "moveparent")) != -1)
+		{
+			entity = entityParent;
+		}
+	}
+
+	return entity;
+}
+
 public int GetEntityByNameAndClassName(const char[] entityName, const char[] entityClassName)
 {
 	int entity = -1;
@@ -164,45 +214,36 @@ public void MarkBomb()
 		UnmarkBomb();
 	}
 
-	int bombEntity = GetEntityByNameAndClassName("bomb", "prop_dynamic_override");
-	if (bombEntity > -1)
+	int entityToGetPosition = GetBombEntityOrAncestor();
+
+	float laserPosition[3];
+	GetEntPropVector(entityToGetPosition, Prop_Send, "m_vecOrigin", laserPosition);
+	laserPosition[2] = laserPosition[2] + 800;
+
+	_laserEntity = CreateEntityByName("env_laser");
+	if (_laserEntity == -1)
 	{
-		int entityToGetPosition = bombEntity;
-		int entityParent = -1;
-		while ((entityParent = GetEntPropEnt(entityToGetPosition, Prop_Send, "moveparent")) != -1)
-		{
-			entityToGetPosition = entityParent;
-		}
-
-		float laserPosition[3];
-		GetEntPropVector(entityToGetPosition, Prop_Send, "m_vecOrigin", laserPosition);
-		laserPosition[2] = laserPosition[2] + 800;
-
-		_laserEntity = CreateEntityByName("env_laser");
-		if (_laserEntity == -1)
-		{
-			return;
-		} 
-
-		DispatchKeyValue(_laserEntity,"spawnflags", "49");
-		DispatchKeyValue(_laserEntity,"targetname", "my_laser");
-		DispatchKeyValue(_laserEntity,"renderfx", "0");
-		DispatchKeyValue(_laserEntity,"LaserTarget", "bomb");
-		DispatchKeyValue(_laserEntity,"renderamt", "188");
-		DispatchKeyValue(_laserEntity,"rendercolor", "255 0 0");
-		DispatchKeyValue(_laserEntity,"Radius", "256");
-		DispatchKeyValue(_laserEntity,"life", "0");
-		DispatchKeyValue(_laserEntity,"width", "10");
-		DispatchKeyValue(_laserEntity,"NoiseAmplitude", "0");
-		DispatchKeyValue(_laserEntity,"texture", "sprites/laserbeam.spr");
-		DispatchKeyValue(_laserEntity,"TextureScroll", "100");
-		DispatchKeyValue(_laserEntity,"framerate", "0");
-		DispatchKeyValue(_laserEntity,"framestart", "0");
-		DispatchKeyValue(_laserEntity,"StrikeTime", "10");
-		DispatchKeyValue(_laserEntity,"damage", "0");
-		DispatchSpawn(_laserEntity);
-		TeleportEntity(_laserEntity, laserPosition, NULL_VECTOR, NULL_VECTOR);
+		return;
 	}
+
+	DispatchKeyValue(_laserEntity,"spawnflags", "49");
+	DispatchKeyValue(_laserEntity,"targetname", "my_laser");
+	DispatchKeyValue(_laserEntity,"renderfx", "0");
+	DispatchKeyValue(_laserEntity,"LaserTarget", "bomb");
+	DispatchKeyValue(_laserEntity,"renderamt", "188");
+	DispatchKeyValue(_laserEntity,"rendercolor", "0 0 255");
+	DispatchKeyValue(_laserEntity,"Radius", "256");
+	DispatchKeyValue(_laserEntity,"life", "0");
+	DispatchKeyValue(_laserEntity,"width", "10");
+	DispatchKeyValue(_laserEntity,"NoiseAmplitude", "0");
+	DispatchKeyValue(_laserEntity,"texture", "sprites/laserbeam.spr");
+	DispatchKeyValue(_laserEntity,"TextureScroll", "100");
+	DispatchKeyValue(_laserEntity,"framerate", "0");
+	DispatchKeyValue(_laserEntity,"framestart", "0");
+	DispatchKeyValue(_laserEntity,"StrikeTime", "10");
+	DispatchKeyValue(_laserEntity,"damage", "0");
+	DispatchSpawn(_laserEntity);
+	TeleportEntity(_laserEntity, laserPosition, NULL_VECTOR, NULL_VECTOR);
 }
 
 public void UnmarkBomb()

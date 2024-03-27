@@ -6,9 +6,10 @@
 
 #define PLUGIN_VERSION "1.00"
 
-const int GAME_STATE_NOTHING = 1;
+const int GAME_STATE_NONE = 0;
+const int GAME_STATE_IDLE = 1;
 const int GAME_STATE_VOTING = 2;
-const int GAME_STATE_MATCH_STARTING = 3;
+const int GAME_STATE_MATCH_READY = 3;
 const int GAME_STATE_MATCH_IN_PROGRESS = 4;
 
 const int VOTE_TYPE_NONE = 0;
@@ -22,7 +23,7 @@ Database _database = null;
 Handle _forceRespawnHandle = INVALID_HANDLE;
 int _normalBotQuota = 0;
 
-int _currentGameState = 0;
+int _currentGameState = GAME_STATE_NONE;
 int _currentVoteType = VOTE_TYPE_NONE;
 int _lastMapChangeTimestamp = 0;
 char _playerAuthIdInfo[MAXPLAYERS + 1][35];
@@ -97,7 +98,7 @@ public void OnClientDisconnect(int client)
 		return;
 	}
 
-	if (_currentGameState == GAME_STATE_NOTHING)
+	if (_currentGameState == GAME_STATE_IDLE)
 	{
 		return;
 	}
@@ -116,13 +117,13 @@ public void OnClientDisconnect(int client)
 	}
 
 	// PrintToServer("[Tournament Helper] All players disconnected. Ending match and voting.");
-	// SetGameState(GAME_STATE_NOTHING);
+	// SetGameState(GAME_STATE_IDLE);
 }
 
 public void OnClientPostAdminCheck(int client)
 {
 	int timeSinceLastMapChange = GetTime() - _lastMapChangeTimestamp;
-	if (IsFakeClient(client) || _currentGameState == GAME_STATE_NOTHING || timeSinceLastMapChange < 120)
+	if (IsFakeClient(client) || _currentGameState == GAME_STATE_IDLE || (_currentGameState == GAME_STATE_MATCH_IN_PROGRESS && timeSinceLastMapChange < 120))
 	{
 		return;
 	}
@@ -138,8 +139,8 @@ public void OnClientPostAdminCheck(int client)
 
 	if (playersConnected == 1) 
 	{
-		PrintToServer("[Tournament Helper] A player connected. Ensuring game state set to nothing.");
-		SetGameState(GAME_STATE_NOTHING);
+		PrintToServer("[Tournament Helper] A player connected. Ensuring game state set to idle.");
+		SetGameState(GAME_STATE_IDLE);
 	}
 }
 
@@ -163,14 +164,14 @@ public Action Command_EndMatch(int client, int args)
 		return Plugin_Handled;
 	}
 
-	if (_currentGameState != GAME_STATE_MATCH_STARTING && _currentGameState != GAME_STATE_MATCH_IN_PROGRESS)
+	if (_currentGameState != GAME_STATE_MATCH_READY && _currentGameState != GAME_STATE_MATCH_IN_PROGRESS)
 	{
 		ReplyToCommand(client, "\x07e50000[Tournament Helper] Failed to end match; no match is in progress.");
 		return Plugin_Handled;
 	}
 
 	ReplyToCommand(client, "\x05[Tournament Helper] Ending match.");
-	SetGameState(GAME_STATE_NOTHING);
+	SetGameState(GAME_STATE_IDLE);
 	return Plugin_Handled;
 }
 
@@ -204,7 +205,7 @@ public Action Command_Jointeam(int client, const char[] command, int args)
 
 	// PrintToChat(client, "command %s, team %d", command, iTeam);
 
-	if (_currentGameState != GAME_STATE_NOTHING)
+	if (_currentGameState != GAME_STATE_IDLE)
 	{
 		int allowedTeam = GetPlayerAllowedTeam(client);
 
@@ -283,12 +284,12 @@ public void Event_GameEnd(Event event, const char[] name, bool dontBroadcast)
 	if (_team1GameWins == _teamGameWinsRequired)
 	{
 		PrintToChatAll("Team 1 is the winner.");
-		SetGameState(GAME_STATE_NOTHING);
+		SetGameState(GAME_STATE_IDLE);
 	}
 	if (_team2GameWins == _teamGameWinsRequired)
 	{
 		PrintToChatAll("Team 2 is the winner.");
-		SetGameState(GAME_STATE_NOTHING);
+		SetGameState(GAME_STATE_IDLE);
 	}
 }
 
@@ -315,7 +316,7 @@ public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast
 	int victimUserid = event.GetInt("userid");
 	int victimClient = GetClientOfUserId(victimUserid);
 
-	if (_currentGameState != GAME_STATE_MATCH_STARTING && _currentGameState != GAME_STATE_MATCH_IN_PROGRESS)
+	if (_currentGameState != GAME_STATE_MATCH_READY && _currentGameState != GAME_STATE_MATCH_IN_PROGRESS)
 	{
 		DataPack pack = new DataPack();
 		pack.WriteCell(victimClient);
@@ -347,7 +348,7 @@ public void Event_PlayerTeam(Event event, const char[] name, bool dontBroadcast)
 	// PrintToChatAll("Player Team Event. userid: %d, team: %d, oldteam: %d.", userid, team, oldteam);
 
 	int client = GetClientOfUserId(userid);
-	if (IsFakeClient(client) || _currentGameState == GAME_STATE_NOTHING)
+	if (IsFakeClient(client) || _currentGameState == GAME_STATE_IDLE)
 	{
 		return;
 	}
@@ -421,17 +422,17 @@ public void SetGameState(int gameState)
 		return;
 	}
 
-	if (gameState == GAME_STATE_VOTING && _currentGameState != GAME_STATE_NOTHING)
+	if (gameState == GAME_STATE_VOTING && _currentGameState != GAME_STATE_IDLE)
 	{
 		PrintToChatAll("\x07e50000[Tournament Helper] Cannot set game state to 'Voting'. This should not happen!");
 		return;
 	}
-	if (gameState == GAME_STATE_MATCH_STARTING && _currentGameState != GAME_STATE_VOTING)
+	if (gameState == GAME_STATE_MATCH_READY && _currentGameState != GAME_STATE_VOTING)
 	{
-		PrintToChatAll("\x07e50000[Tournament Helper] Cannot set game state to 'MatchStarting'. This should not happen!");
+		PrintToChatAll("\x07e50000[Tournament Helper] Cannot set game state to 'MatchReady'. This should not happen!");
 		return;
 	}
-	if (gameState == GAME_STATE_MATCH_IN_PROGRESS && _currentGameState != GAME_STATE_MATCH_STARTING)
+	if (gameState == GAME_STATE_MATCH_IN_PROGRESS && _currentGameState != GAME_STATE_MATCH_READY)
 	{
 		PrintToChatAll("\x07e50000[Tournament Helper] Cannot set game state to 'MatchInProgress'. This should not happen!");
 		return;
@@ -445,9 +446,9 @@ public void SetGameState(int gameState)
 
 	PrintToServer("[Tournament Helper] Setting game state to %d.", _currentGameState);
 
-	if (_currentGameState == GAME_STATE_NOTHING)
+	if (_currentGameState == GAME_STATE_IDLE)
 	{
-		if (previousGameState == GAME_STATE_MATCH_STARTING || previousGameState == GAME_STATE_MATCH_IN_PROGRESS)
+		if (previousGameState == GAME_STATE_MATCH_READY || previousGameState == GAME_STATE_MATCH_IN_PROGRESS)
 		{
 			PrintToChatAll("\x07f5bf03[Tournament Helper] Match has been cancelled. Teams are now unlocked.");
 		}
@@ -492,7 +493,7 @@ public void SetGameState(int gameState)
 		return;
 	}
 	
-	if (_currentGameState == GAME_STATE_MATCH_STARTING)
+	if (_currentGameState == GAME_STATE_MATCH_READY)
 	{
 		PrintToChatAll("\x07f5bf03[Tournament Helper] Match is ready to start. Call an in-game vote to select the first map.");
 
@@ -527,6 +528,7 @@ public void ClearHintText()
 	if (_hintTextHandle != null)
 	{
 		KillTimer(_hintTextHandle);
+		_hintTextHandle = null;
 	}
 }
 
@@ -535,6 +537,7 @@ public void ShowHintText(const char[] hintText)
 	if (_hintTextHandle != null)
 	{
 		KillTimer(_hintTextHandle);
+		_hintTextHandle = null;
 	}
 
 	PrintHintTextToAll(hintText);
@@ -567,7 +570,7 @@ public int Handle_VoteMenu(Menu menu, MenuAction action, int param1, int param2)
 	else if (action == MenuAction_VoteCancel)
 	{
 		PrintToChatAll("[Tournament Helper] No votes were cast; cancelling voting.");
-		SetGameState(GAME_STATE_NOTHING);
+		SetGameState(GAME_STATE_IDLE);
 	}
 }
  
@@ -596,7 +599,7 @@ public void Handle_VoteResults(
 
 			if (playerVoteItemIndex < 0 || playerVoteItemIndex != yesItemIndex)
 			{
-				SetGameState(GAME_STATE_NOTHING);
+				SetGameState(GAME_STATE_IDLE);
 				return;
 			}
 		}
@@ -633,12 +636,12 @@ public void Handle_VoteResults(
 		PrintToChatAll("\x07f5bf03[Tournament Helper] Game wins required to win match: %s.", item);
 		_teamGameWinsRequired = StringToInt(item);
 
-		SetGameState(GAME_STATE_MATCH_STARTING);
+		SetGameState(GAME_STATE_MATCH_READY);
 	}
 	else
 	{
 		PrintToChatAll("\x07e50000[Tournament Helper] VoteType %d not supported. This should not happen!", _currentVoteType);
-		SetGameState(GAME_STATE_NOTHING);
+		SetGameState(GAME_STATE_IDLE);
 	}
 }
 
@@ -841,6 +844,7 @@ public void ClearCountdownTimer()
 	if (_countdownTimeRemainingHandle != null)
 	{
 		KillTimer(_countdownTimeRemainingHandle);
+		_countdownTimeRemainingHandle = null;
 	}
 
 	PrintCenterTextAll("");
@@ -851,6 +855,7 @@ public void ShowCountdownTimer(int seconds)
 	if (_countdownTimeRemainingHandle != null)
 	{
 		KillTimer(_countdownTimeRemainingHandle);
+		_countdownTimeRemainingHandle = null;
 	}
 
 	PrintCenterTextAll("Time remaining for current vote: %ds", seconds);
@@ -1005,13 +1010,13 @@ public void SqlQueryCallback_LoadState1(Handle database, Handle handle, const ch
 		}
 	}
 
-	if (currentGameState == GAME_STATE_MATCH_STARTING || currentGameState == GAME_STATE_MATCH_IN_PROGRESS)
+	if (currentGameState == GAME_STATE_MATCH_READY || currentGameState == GAME_STATE_MATCH_IN_PROGRESS)
 	{
 		SetGameState(GAME_STATE_MATCH_IN_PROGRESS);
 	}
 	else
 	{
-		SetGameState(GAME_STATE_NOTHING);
+		SetGameState(GAME_STATE_IDLE);
 	}
 }
 

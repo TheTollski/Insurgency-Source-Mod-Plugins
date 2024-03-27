@@ -30,6 +30,7 @@ int _matchId = 0;
 char _playerAuthIdInfo[MAXPLAYERS + 1][35];
 int _playerCount = 0;
 int _playerTeamInfo[MAXPLAYERS + 1] = { -1, ... };
+bool _pluginIsChangingMpIgnoreWinConditions = false;
 int _team1GameWins = 0; // This team joined as insurgents.
 int _team2GameWins = 0; // This team joined as security.
 int _teamGameWinsRequired = 0;
@@ -72,6 +73,8 @@ public void OnPluginStart()
 	_conVar_insBotQuota = FindConVar("ins_bot_quota");
 	_conVar_mpIgnoreWinConditions = FindConVar("mp_ignore_win_conditions");
 	_conVar_svVoteIssueChangelevelAllowed = FindConVar("sv_vote_issue_changelevel_allowed");
+
+	_conVar_mpIgnoreWinConditions.AddChangeHook(ConVarChanged_MpIgnoreWinConditions);
 
 	// Respawn logic taken from https://github.com/jaredballou/insurgency-sourcemod/blob/master/scripting/disabled/respawn.sp
 	GameData gameData = LoadGameConfigFile("plugin.respawn");
@@ -288,6 +291,16 @@ public Action Command_StartVote(int client, int args)
 // Hooks
 //
 
+public void ConVarChanged_MpIgnoreWinConditions(ConVar convar, char[] oldValue, char[] newValue)
+{
+	if (_pluginIsChangingMpIgnoreWinConditions)
+	{
+		return;
+	}
+
+	ChangeMpIgnoreWinConditions(StringToInt(oldValue));
+}
+
 public void Event_GameEnd(Event event, const char[] name, bool dontBroadcast)
 {
 	// int team1Score = event.GetInt("team1_score");
@@ -426,6 +439,15 @@ public Action PlayerTeamEvent_ChangeClientTeam_AfterDelay(Handle timer, DataPack
 // Helper Functions
 //
 
+public void ChangeMpIgnoreWinConditions(int newValue)
+{
+	PrintToServer("[Tournament Helper] Changing mp_ignore_win_conditions to '%d'.", newValue);
+
+	_pluginIsChangingMpIgnoreWinConditions = true;
+	_conVar_mpIgnoreWinConditions.IntValue = newValue;
+	_pluginIsChangingMpIgnoreWinConditions = false;
+}
+
 public int GetClientFromAuthId(const char[] paramAuthId)
 {
 	for (int i = 1; i < MaxClients + 1; i++)
@@ -530,7 +552,7 @@ public void SetGameState(int gameState)
 	int previousGameState = _currentGameState;
 	_currentGameState = gameState;
 
-	PrintToServer("[Tournament Helper] Setting game state to %d.", _currentGameState);
+	PrintToServer("[Tournament Helper] Setting game state to %d...", _currentGameState);
 
 	if (_currentGameState == GAME_STATE_IDLE)
 	{
@@ -546,7 +568,7 @@ public void SetGameState(int gameState)
 		_currentVoteType = VOTE_TYPE_NONE;
 
 		_conVar_insBotQuota.IntValue = _normalBotQuota;
-		_conVar_mpIgnoreWinConditions.IntValue = 1;
+		ChangeMpIgnoreWinConditions(1);
 		_conVar_svVoteIssueChangelevelAllowed.IntValue = 1;
 
 		ShowHintText("When both teams are ready, type: !startvote");
@@ -596,7 +618,7 @@ public void SetGameState(int gameState)
 	{
 		PrintToChatAll("\x07f5bf03[Tournament Helper] Match is now in progress...");
 
-		_conVar_mpIgnoreWinConditions.IntValue = 0;		
+		ChangeMpIgnoreWinConditions(0);
 		_conVar_svVoteIssueChangelevelAllowed.IntValue = 0;
 
 		_team1GameWins = 0;
@@ -1080,6 +1102,8 @@ public void SqlQueryCallback_CreateMatchRecord2(Handle database, Handle handle, 
 
 public void SaveState()
 {
+	PrintToServer("[Tournament Helper] Saving state...");
+
 	char queryString[512];
 	SQL_FormatQuery(
 		_database, queryString, sizeof(queryString),
@@ -1124,6 +1148,8 @@ public void SqlQueryCallback_SaveState2(Handle database, Handle handle, const ch
 
 public void LoadState()
 {
+	PrintToServer("[Tournament Helper] Loading state...");
+
 	char queryString1[256];
 	SQL_FormatQuery(_database, queryString1, sizeof(queryString1), "SELECT * FROM th_state");
 	SQL_TQuery(_database, SqlQueryCallback_LoadState1, queryString1);
@@ -1157,7 +1183,7 @@ public void SqlQueryCallback_LoadState1(Handle database, Handle handle, const ch
 		}
 		else if (StrEqual(key, "conVar_mpIgnoreWinConditions_value"))
 		{
-			_conVar_mpIgnoreWinConditions.IntValue = value;
+			ChangeMpIgnoreWinConditions(value);
 		}
 		else if (StrEqual(key, "conVar_svVoteIssueChangelevelAllowed_value"))
 		{

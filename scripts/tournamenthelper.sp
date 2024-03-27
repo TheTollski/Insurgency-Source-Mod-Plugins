@@ -44,6 +44,8 @@ bool _pluginIsChangingMpMaxRounds = false;
 bool _pluginIsChangingMpWinLimit = false;
 int _team1GameWins = 0; // This team joined as insurgents.
 int _team2GameWins = 0; // This team joined as security.
+int _team1RoundWins = 0;
+int _team2RoundWins = 0;
 int _teamGameWinsRequired = 0;
 int _teamRoundWinsRequired = 0;
 
@@ -82,6 +84,7 @@ public void OnPluginStart()
 	HookEvent("game_end", Event_GameEnd);
 	// HookEvent("player_death", Event_PlayerDeath);
 	HookEvent("player_team", Event_PlayerTeam);
+	HookEvent("round_end", Event_RoundEnd);
 
 	RegAdminCmd("sm_endmatch", Command_EndMatch, ADMFLAG_GENERIC, "Ends match.");
 	RegAdminCmd("sm_printstate", Command_PrintState, ADMFLAG_GENERIC, "Prints state.");
@@ -191,6 +194,9 @@ public void OnClientPutInServer(int client)
 public void OnConfigsExecuted()
 {
 	_normalBotQuota = _conVar_insBotQuota.IntValue;
+
+	_team1RoundWins = 0; // I thought variables were wiped on map change, why do I need to do this?
+	_team2RoundWins = 0;
 
 	LoadState();
 }
@@ -409,9 +415,11 @@ public void Event_GameEnd(Event event, const char[] name, bool dontBroadcast)
 		return;
 	}
 
+	int winningTeam = 0;
 	if (winner == 3)
 	{
 		_team1GameWins++;
+		winningTeam = 1;
 
 		char queryString[256];
 		SQL_FormatQuery(_database, queryString, sizeof(queryString), "UPDATE th_matches SET team1GameWins = team1GameWins + 1 WHERE id = %d", _matchId);
@@ -420,22 +428,26 @@ public void Event_GameEnd(Event event, const char[] name, bool dontBroadcast)
 	else if (winner == 2)
 	{
 		_team2GameWins++;
+		winningTeam = 2;
 
 		char queryString[256];
 		SQL_FormatQuery(_database, queryString, sizeof(queryString), "UPDATE th_matches SET team2GameWins = team2GameWins + 1 WHERE id = %d", _matchId);
 		SQL_TQuery(_database, SqlQueryCallback_Default, queryString);
 	}
 
+	PrintToChatAll("\x07f5bf03[Tournament Helper] Team %d wins the game! Team 1 game wins: %d, team 2 game wins: %d, game wins required to win the match: %d.",
+		winningTeam, _team1GameWins, _team2GameWins, _teamGameWinsRequired);
+
 	int matchWinner = -1;
 	if (_team1GameWins == _teamGameWinsRequired)
 	{
 		matchWinner = 1;
-		PrintToChatAll("Team 1 wins the match!");
+		PrintToChatAll("\x07f5bf03[Tournament Helper] Team 1 wins the match!");
 	}
 	else if (_team2GameWins == _teamGameWinsRequired)
 	{
 		matchWinner = 2;
-		PrintToChatAll("Team 2 wins the match!");
+		PrintToChatAll("\x07f5bf03[Tournament Helper] Team 2 wins the match!");
 	}
 
 	if (matchWinner > 0)
@@ -511,6 +523,32 @@ public void Event_PlayerTeam(Event event, const char[] name, bool dontBroadcast)
 		pack.WriteCell(allowedTeam);
 		CreateTimer(0.25, PlayerTeamEvent_ChangeClientTeam_AfterDelay, pack);
 	}
+}
+
+public void Event_RoundEnd(Event event, const char[] name, bool dontBroadcast)
+{
+	// int message = event.GetInt("message");
+	// char messageString[64];
+	// event.GetString("message_string", messageString, sizeof(messageString));
+	// int reason = event.GetInt("reason");
+	int winner = event.GetInt("winner");
+
+	// PrintToChatAll("round_end. message: %d, messageString: %s, reason: %d, winner: %d", message, messageString, reason, winner);
+	
+	int winningTeam = 0;
+	if (winner == 3)
+	{
+		_team1RoundWins++;
+		winningTeam = 1;
+	}
+	else if (winner == 2)
+	{
+		_team2RoundWins++;
+		winningTeam = 2;
+	}
+
+	PrintToChatAll("\x07f5bf03[Tournament Helper] Team %d wins the round! Team 1 round wins: %d, team 2 round wins: %d, round wins required to win the game: %d.",
+		winningTeam, _team1RoundWins, _team2RoundWins, _teamRoundWinsRequired);
 }
 
 public Action PlayerTeamEvent_SetIsRespawnable_AfterDelay(Handle timer, DataPack inputPack)

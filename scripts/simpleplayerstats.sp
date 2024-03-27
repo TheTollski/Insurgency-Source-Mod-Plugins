@@ -32,6 +32,8 @@ public void OnPluginStart()
 	HookEvent("controlpoint_captured", Event_ControlpointCaptured);
 	HookEvent("controlpoint_endtouch", Event_ControlpointEndtouch);
 	HookEvent("controlpoint_starttouch", Event_ControlpointStartTouch);
+	HookEvent("flag_captured", Event_FlagCaptured);
+	HookEvent("flag_pickup", Event_FlagPickup);
 	HookEvent("round_start", Event_RoundStart);
 	HookEvent("player_death", Event_PlayerDeath);
 	HookEvent("player_team", Event_PlayerTeam);
@@ -142,7 +144,7 @@ public void Event_ControlpointEndtouch(Event event, const char[] name, bool dont
 	{
 		return;
 	}
-	
+
 	_controlPointsThatPlayersAreTouching[playerClient] = -1;
 }
 
@@ -162,6 +164,55 @@ public void Event_ControlpointStartTouch(Event event, const char[] name, bool do
 	}
 
 	_controlPointsThatPlayersAreTouching[playerClient] = area;
+}
+
+public void Event_FlagCaptured(Event event, const char[] name, bool dontBroadcast)
+{
+	//int priority = event.GetInt("priority");
+	int userid = event.GetInt("userid");
+	//PrintToChatAll("flag_captured. priority: %d, userid: %d", priority, userid);
+
+	int client = GetClientOfUserId(userid);
+	if (IsFakeClient(client))
+	{
+		return;
+	}
+
+	char playerName[64];
+	GetClientName(client, playerName, sizeof(playerName));
+	PrintToConsoleAll("Debug: %s captured the flag.", playerName);
+
+	char authId[35];
+	GetClientAuthId(client, AuthId_Steam2, authId, sizeof(authId));
+
+	char queryString[256];
+	SQL_FormatQuery(_database, queryString, sizeof(queryString), "UPDATE sps_players SET FlagsCaptured = FlagsCaptured + 1 WHERE AuthId = '%s'", authId);
+	SQL_TQuery(_database, SqlQueryCallback_Default, queryString);
+}
+
+public void Event_FlagPickup(Event event, const char[] name, bool dontBroadcast)
+{
+	//int cp = event.GetInt("cp");
+	//int priority = event.GetInt("priority");
+	int userid = event.GetInt("userid");
+	//PrintToChatAll("flag_captured. cp: %d, priority: %d, userid: %d", cp, priority, userid);
+
+	int client = GetClientOfUserId(userid);
+	if (IsFakeClient(client))
+	{
+		return;
+	}
+
+	char playerName[64];
+	GetClientName(client, playerName, sizeof(playerName));
+	PrintToConsoleAll("Debug: %s picked up the flag.", playerName);
+
+	char authId[35];
+	GetClientAuthId(client, AuthId_Steam2, authId, sizeof(authId));
+
+	char queryString[256];
+	SQL_FormatQuery(_database, queryString, sizeof(queryString), "UPDATE sps_players SET FlagsPickedUp = FlagsPickedUp + 1 WHERE AuthId = '%s'", authId);
+	SQL_TQuery(_database, SqlQueryCallback_Default, queryString);
 }
 
 public void Event_RoundStart(Event event, const char[] name, bool dontBroadcast)
@@ -345,7 +396,7 @@ public void ConnectToDatabase()
 	SQL_TQuery(
 		_database,
 		SqlQueryCallback_Default,
-		"CREATE TABLE IF NOT EXISTS sps_players (AuthId VARCHAR(35) NOT NULL, PlayerName VARCHAR(64) NOT NULL, FirstConnectionTimestamp INT(11) NOT NULL, LastConnectionTimestamp INT(11) NOT NULL, ConnectionCount INT(7) NOT NULL, ConnectedTime INT(9) NOT NULL, ActiveTime INT(9) NOT NULL, EnemyBotKills INT(8) NOT NULL, EnemyPlayerKills INT(8) NOT NULL, TeamKills INT(8) NOT NULL, DeathsToEnemyBots INT(8) NOT NULL, DeathsToEnemyPlayers INT(8) NOT NULL, DeathsToSelf INT(8) NOT NULL, DeathsToTeam INT(8) NOT NULL, DeathsToOther INT(8) NOT NULL, ControlPointsCaptured INT(8), UNIQUE(AuthId))");
+		"CREATE TABLE IF NOT EXISTS sps_players (AuthId VARCHAR(35) NOT NULL, PlayerName VARCHAR(64) NOT NULL, FirstConnectionTimestamp INT(11) NOT NULL, LastConnectionTimestamp INT(11) NOT NULL, ConnectionCount INT(7) NOT NULL, ConnectedTime INT(9) NOT NULL, ActiveTime INT(9) NOT NULL, EnemyBotKills INT(8) NOT NULL, EnemyPlayerKills INT(8) NOT NULL, TeamKills INT(8) NOT NULL, DeathsToEnemyBots INT(8) NOT NULL, DeathsToEnemyPlayers INT(8) NOT NULL, DeathsToSelf INT(8) NOT NULL, DeathsToTeam INT(8) NOT NULL, DeathsToOther INT(8) NOT NULL, ControlPointsCaptured INT(8), FlagsCaptured INT(8), FlagsPickedUp INT(8), UNIQUE(AuthId))");
 }
 
 public void SqlQueryCallback_Command_MyStats1(Handle database, Handle handle, const char[] sError, int data)
@@ -383,14 +434,16 @@ public void SqlQueryCallback_Command_MyStats1(Handle database, Handle handle, co
 	int deathsToTeam = SQL_FetchInt(handle, 13);
 	int deathsToOther = SQL_FetchInt(handle, 14);
 	int controlPointsCaptured = SQL_FetchInt(handle, 15);
+	int flagsCaptured = SQL_FetchInt(handle, 16);
+	int flagsPickedUp = SQL_FetchInt(handle, 17);
 
 	PrintToConsole(
 		client,
-		"[Simple Player Stats] Your Stats -- ConnectionCount: %d - ConnectedTime: %dh%dm - ActiveTime: %dh%dm - TotalKills: %d (%d enemy bots, %d enemy players, %d team) - TotalDeaths: %d (%d enemy bots, %d enemy players, %d self, %d team, %d other) - ControlPointsCaptured: %d",
+		"[Simple Player Stats] Your Stats -- ConnectionCount: %d - ConnectedTime: %dh%dm - ActiveTime: %dh%dm - TotalKills: %d (%d enemy bots, %d enemy players, %d team) - TotalDeaths: %d (%d enemy bots, %d enemy players, %d self, %d team, %d other) - Objectives: %d (%d control points captured, %d flags picked up, %d flags captured)",
 		connectionCount, connectedTime / 3600, connectedTime % 3600 / 60, activeTime / 3600, activeTime % 3600 / 60,
 		enemyBotKills + enemyPlayerKills + teamKills, enemyBotKills, enemyPlayerKills, teamKills,
 		deathsToEnemyBots + deathsToEnemyPlayers + deathsToSelf + deathsToTeam + deathsToOther, deathsToEnemyBots, deathsToEnemyPlayers, deathsToSelf, deathsToTeam, deathsToOther,
-		controlPointsCaptured);
+		controlPointsCaptured + flagsPickedUp + flagsCaptured, controlPointsCaptured, flagsPickedUp, flagsCaptured);
 }
 
 public void SqlQueryCallback_Default(Handle database, Handle handle, const char[] sError, int data)
@@ -435,8 +488,8 @@ public void SqlQueryCallback_OnClientPostAdminCheck1(Handle database, Handle han
 			_database,
 			queryString,
 			sizeof(queryString),
-			"INSERT INTO sps_players (AuthId, PlayerName, FirstConnectionTimestamp, LastConnectionTimestamp, ConnectionCount, ConnectedTime, ActiveTime, EnemyBotKills, EnemyPlayerKills, TeamKills, DeathsToEnemyBots, DeathsToEnemyPlayers, DeathsToSelf, DeathsToTeam, DeathsToOther, ControlPointsCaptured) VALUES ('%s', '%s', %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d)",
-			authId, name, timestamp, timestamp, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+			"INSERT INTO sps_players (AuthId, PlayerName, FirstConnectionTimestamp, LastConnectionTimestamp, ConnectionCount, ConnectedTime, ActiveTime, EnemyBotKills, EnemyPlayerKills, TeamKills, DeathsToEnemyBots, DeathsToEnemyPlayers, DeathsToSelf, DeathsToTeam, DeathsToOther, ControlPointsCaptured, FlagsCaptured, FlagsPickedUp) VALUES ('%s', '%s', %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d)",
+			authId, name, timestamp, timestamp, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 		SQL_TQuery(_database, SqlQueryCallback_Default, queryString);
 
 		PrintToChat(client, "Welcome %s, this is your first time here!", name);

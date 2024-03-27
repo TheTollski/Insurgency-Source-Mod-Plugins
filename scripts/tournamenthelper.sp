@@ -15,21 +15,22 @@ const int VOTE_TYPE_NONE = 0;
 const int VOTE_TYPE_READY = 1;
 const int VOTE_TYPE_WINCOUNT = 2;
 
-int _currentGameState = GAME_STATE_NOTHING;
-int _currentVoteType = VOTE_TYPE_NONE;
+ConVar _conVar_insBotQuota = null;
+ConVar _conVar_mpIgnoreWinConditions = null;
+ConVar _conVar_svVoteIssueChangelevelAllowed = null;
+Database _database = null;
 Handle _forceRespawnHandle = INVALID_HANDLE;
 int _normalBotQuota = 0;
+
+int _currentGameState = GAME_STATE_NOTHING;
+int _currentVoteType = VOTE_TYPE_NONE;
+int _lastMapChangeTimestamp = 0;
 char _playerAuthIdInfo[MAXPLAYERS + 1][35];
 int _playerCount = 0;
 int _playerTeamInfo[MAXPLAYERS + 1] = { -1, ... };
-
-ConVar _insBotQuotaConVar = null;
-ConVar _mpIgnoreWinConditionsConVar = null;
-ConVar _svVoteIssueChangelevelAllowedConVar = null;
-
-int _gameWinsRequired = 0;
 int _team1GameWins = 0; // This team joined as insurgents.
 int _team2GameWins = 0; // This team joined as security.
+int _teamGameWinsRequired = 0;
 
 // TODO:
 // Disable voting on maps and stuff
@@ -65,15 +66,16 @@ public void OnPluginStart()
 	HookEvent("player_team", Event_PlayerTeam);
 
 	RegAdminCmd("sm_endmatch", Command_EndMatch, ADMFLAG_GENERIC, "Ends match.");
+	RegAdminCmd("sm_printstate", Command_PrintState, ADMFLAG_GENERIC, "Prints state.");
 
 	RegConsoleCmd("sm_startvote", Command_StartVote, "Starts the voting process.");
 
 	ConVar mpTeamsUnbalanceLimitConVar = FindConVar("mp_teams_unbalance_limit");
 	mpTeamsUnbalanceLimitConVar.IntValue = 0;
 
-	_insBotQuotaConVar = FindConVar("ins_bot_quota");
-	_mpIgnoreWinConditionsConVar = FindConVar("mp_ignore_win_conditions");
-	_svVoteIssueChangelevelAllowedConVar = FindConVar("sv_vote_issue_changelevel_allowed");
+	_conVar_insBotQuota = FindConVar("ins_bot_quota");
+	_conVar_mpIgnoreWinConditions = FindConVar("mp_ignore_win_conditions");
+	_conVar_svVoteIssueChangelevelAllowed = FindConVar("sv_vote_issue_changelevel_allowed");
 
 	// Respawn logic taken from https://github.com/jaredballou/insurgency-sourcemod/blob/master/scripting/disabled/respawn.sp
 	GameData gameData = LoadGameConfigFile("plugin.respawn");
@@ -84,6 +86,8 @@ public void OnPluginStart()
 	StartPrepSDKCall(SDKCall_Player);
 	PrepSDKCall_SetFromConf(gameData, SDKConf_Signature, "ForceRespawn");
 	_forceRespawnHandle = EndPrepSDKCall();
+
+	ConnectToDatabase();
 }
 
 public void OnClientDisconnect(int client)
@@ -111,13 +115,14 @@ public void OnClientDisconnect(int client)
 		}
 	}
 
-	PrintToServer("All players disconnected. Ending match and voting.");
-	SetGameState(GAME_STATE_NOTHING);
+	// PrintToServer("[Tournament Helper] All players disconnected. Ending match and voting.");
+	// SetGameState(GAME_STATE_NOTHING);
 }
 
 public void OnClientPostAdminCheck(int client)
 {
-	if (IsFakeClient(client) || _currentGameState == GAME_STATE_NOTHING)
+	int timeSinceLastMapChange = GetTime() - _lastMapChangeTimestamp;
+	if (IsFakeClient(client) || _currentGameState == GAME_STATE_NOTHING || timeSinceLastMapChange < 60)
 	{
 		return;
 	}
@@ -133,22 +138,22 @@ public void OnClientPostAdminCheck(int client)
 
 	if (playersConnected == 1) 
 	{
-		PrintToServer("A player connected. Ensuring game state set to nothing.");
+		PrintToServer("[Tournament Helper] A player connected. Ensuring game state set to nothing.");
 		SetGameState(GAME_STATE_NOTHING);
 	}
 }
 
 public void OnConfigsExecuted()
 {
-	_normalBotQuota = _insBotQuotaConVar.IntValue;
+	_normalBotQuota = _conVar_insBotQuota.IntValue;
+
+	LoadState();
 }
 
-public void OnMapStart()
+public void OnMapEnd()
 {
-	if (_currentGameState == GAME_STATE_MATCH_STARTING)
-	{
-		SetGameState(GAME_STATE_MATCH_IN_PROGRESS);
-	}
+	_lastMapChangeTimestamp = GetTime();
+	SaveState();
 }
 
 public Action Command_EndMatch(int client, int args)
@@ -166,6 +171,28 @@ public Action Command_EndMatch(int client, int args)
 
 	ReplyToCommand(client, "\x05[Tournament Helper] Ending match.");
 	SetGameState(GAME_STATE_NOTHING);
+	return Plugin_Handled;
+}
+
+public Action Command_PrintState(int client, int args)
+{
+	if (args > 0) {
+		ReplyToCommand(client, "\x07e50000[Tournament Helper] Usage: sm_printstate");
+		return Plugin_Handled;
+	}
+
+	ReplyToCommand(client, "\x05[Tournament Helper] Printing current state.");
+	
+	ReplyToCommand(client, "[Tournament Helper] conVar_insBotQuota_value: %d, conVar_mpIgnoreWinConditions_value: %d, conVar_svVoteIssueChangelevelAllowed_value: %d",
+	_conVar_insBotQuota.IntValue, _conVar_mpIgnoreWinConditions.IntValue, _conVar_svVoteIssueChangelevelAllowed.IntValue);
+	ReplyToCommand(client, "[Tournament Helper] currentGameState: %d, currentVoteType: %d, playerCount: %d, team1GameWins: %d, team2GameWins: %d, teamGameWinsRequired: %d",
+	_currentGameState, _currentVoteType, _playerCount, _team1GameWins, _team2GameWins, _teamGameWinsRequired);
+
+	for (int i = 0; i < _playerCount; i++)
+	{
+		ReplyToCommand(client, "[Tournament Helper] player[%d] team: %d, authId: %s", i, _playerTeamInfo[i], _playerAuthIdInfo[i]);
+	}
+
 	return Plugin_Handled;
 }
 
@@ -255,12 +282,12 @@ public void Event_GameEnd(Event event, const char[] name, bool dontBroadcast)
 		_team2GameWins++;
 	}
 
-	if (_team1GameWins == _gameWinsRequired)
+	if (_team1GameWins == _teamGameWinsRequired)
 	{
 		PrintToChatAll("Team 1 is the winner.");
 		SetGameState(GAME_STATE_NOTHING);
 	}
-	if (_team2GameWins == _gameWinsRequired)
+	if (_team2GameWins == _teamGameWinsRequired)
 	{
 		PrintToChatAll("Team 2 is the winner.");
 		SetGameState(GAME_STATE_NOTHING);
@@ -430,9 +457,9 @@ public void SetGameState(int gameState)
 
 		_currentVoteType = VOTE_TYPE_NONE;
 
-		_insBotQuotaConVar.IntValue = _normalBotQuota;
-		_mpIgnoreWinConditionsConVar.IntValue = 1;
-		_svVoteIssueChangelevelAllowedConVar.IntValue = 1;
+		_conVar_insBotQuota.IntValue = _normalBotQuota;
+		_conVar_mpIgnoreWinConditions.IntValue = 1;
+		_conVar_svVoteIssueChangelevelAllowed.IntValue = 1;
 
 		return;
 	}
@@ -466,7 +493,7 @@ public void SetGameState(int gameState)
 	{
 		PrintToChatAll("\x07f5bf03[Tournament Helper] Match is starting...");
 
-		_insBotQuotaConVar.IntValue = 0;
+		_conVar_insBotQuota.IntValue = 0;
 
 		return;
 	}
@@ -475,8 +502,8 @@ public void SetGameState(int gameState)
 	{
 		PrintToChatAll("\x07f5bf03[Tournament Helper] Match is now in progress...");
 
-		_mpIgnoreWinConditionsConVar.IntValue = 0;		
-		_svVoteIssueChangelevelAllowedConVar.IntValue = 0;
+		_conVar_mpIgnoreWinConditions.IntValue = 0;		
+		_conVar_svVoteIssueChangelevelAllowed.IntValue = 0;
 
 		_team1GameWins = 0;
 		_team2GameWins = 0;
@@ -563,7 +590,7 @@ public void Handle_VoteResults(
 		char item[64];
 		menu.GetItem(insurgentsVotedItemIndex, item, sizeof(item));
 		PrintToChatAll("\x07f5bf03[Tournament Helper] Game wins required to win match: %s.", item);
-		_gameWinsRequired = StringToInt(item);
+		_teamGameWinsRequired = StringToInt(item);
 
 		SetGameState(GAME_STATE_MATCH_STARTING);
 	}
@@ -790,4 +817,182 @@ public int StartVoteHelper_PopulateReadyMenu(Menu menu, DataPack inputPack)
 	menu.SetTitle("'%s' has initiated a vote to start the match. Is your team ready?", requestorName);
 	menu.AddItem("yes", "Yes");
 	menu.AddItem("no", "No");
+}
+
+// Database Functions
+
+public void ConnectToDatabase()
+{
+	char error[256];
+	_database = SQLite_UseDatabase("tournamenthelper", error, sizeof(error));
+	if (_database == INVALID_HANDLE)
+	{
+		SetFailState("Failed to connect to the database 'tournamenthelper' with error: '%s'", error);
+		return;
+	}
+
+	SQL_TQuery(_database, SqlQueryCallback_Default, "CREATE TABLE IF NOT EXISTS th_state (key VARCHAR(64) PRIMARY KEY, value Int(11) NOT NULL)");
+	SQL_TQuery(_database, SqlQueryCallback_Default, "CREATE TABLE IF NOT EXISTS th_playerAuthIdInfo (i Int(3) PRIMARY KEY, value VARCHAR(35) NOT NULL)");
+	SQL_TQuery(_database, SqlQueryCallback_Default, "CREATE TABLE IF NOT EXISTS th_playerTeamInfo (i Int(3) PRIMARY KEY, value Int(2) NOT NULL)");
+}
+
+public void SaveState()
+{
+	char queryString[512];
+	SQL_FormatQuery(
+		_database, queryString, sizeof(queryString),
+		"REPLACE INTO th_state (key, value) VALUES ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d)",
+		"conVar_insBotQuota_value", _conVar_insBotQuota.IntValue, "conVar_mpIgnoreWinConditions_value", _conVar_mpIgnoreWinConditions.IntValue, "conVar_svVoteIssueChangelevelAllowed_value", _conVar_svVoteIssueChangelevelAllowed.IntValue,
+		"currentGameState", _currentGameState, "currentVoteType", _currentVoteType, "lastMapChangeTimestamp", _lastMapChangeTimestamp, "playerCount", _playerCount, "team1GameWins", _team1GameWins, "team2GameWins", _team2GameWins, "teamGameWinsRequired", _teamGameWinsRequired);
+	SQL_TQuery(_database, SqlQueryCallback_Default, queryString);
+
+	SQL_TQuery(_database, SqlQueryCallback_SaveState1, "DELETE FROM th_playerAuthIdInfo");
+	SQL_TQuery(_database, SqlQueryCallback_SaveState2, "DELETE FROM th_playerTeamInfo");
+}
+
+public void SqlQueryCallback_SaveState1(Handle database, Handle handle, const char[] sError, any data)
+{
+	if (!handle)
+	{
+		ThrowError("SQL query error in SqlQueryCallback_SaveState1: '%s'", sError);
+	}
+
+	for (int i = 0; i < _playerCount; i++)
+	{			
+		char queryString[256];
+		SQL_FormatQuery(_database, queryString, sizeof(queryString), "INSERT INTO th_playerAuthIdInfo (i, value) VALUES (%d, '%s')", i, _playerAuthIdInfo[i]);
+		SQL_TQuery(_database, SqlQueryCallback_Default, queryString);
+	}
+}
+
+public void SqlQueryCallback_SaveState2(Handle database, Handle handle, const char[] sError, any data)
+{
+	if (!handle)
+	{
+		ThrowError("SQL query error in SqlQueryCallback_SaveState2: '%s'", sError);
+	}
+
+	for (int i = 0; i < _playerCount; i++)
+	{			
+		char queryString[256];
+		SQL_FormatQuery(_database, queryString, sizeof(queryString), "INSERT INTO th_playerTeamInfo (i, value) VALUES (%d, %d)", i, _playerTeamInfo[i]);
+		SQL_TQuery(_database, SqlQueryCallback_Default, queryString);
+	}
+}
+
+public void LoadState()
+{
+	char queryString1[256];
+	SQL_FormatQuery(_database, queryString1, sizeof(queryString1), "SELECT * FROM th_state");
+	SQL_TQuery(_database, SqlQueryCallback_LoadState1, queryString1);
+
+	char queryString2[256];
+	SQL_FormatQuery(_database, queryString2, sizeof(queryString2), "SELECT * FROM th_playerAuthIdInfo");
+	SQL_TQuery(_database, SqlQueryCallback_LoadState2, queryString2);
+
+	char queryString3[256];
+	SQL_FormatQuery(_database, queryString3, sizeof(queryString3), "SELECT * FROM th_playerTeamInfo");
+	SQL_TQuery(_database, SqlQueryCallback_LoadState3, queryString3);
+}
+
+public void SqlQueryCallback_LoadState1(Handle database, Handle handle, const char[] sError, any data)
+{
+	if (!handle)
+	{
+		ThrowError("SQL query error in SqlQueryCallback_LoadState1: '%s'", sError);
+	}
+
+	while (SQL_FetchRow(handle))
+	{
+		char key[64];
+		SQL_FetchString(handle, 0, key, sizeof(key));
+		int value = SQL_FetchInt(handle, 1);
+
+		if (StrEqual(key, "conVar_insBotQuota_value"))
+		{
+			_conVar_insBotQuota.IntValue = value;
+		}
+		else if (StrEqual(key, "conVar_mpIgnoreWinConditions_value"))
+		{
+			_conVar_mpIgnoreWinConditions.IntValue = value;
+		}
+		else if (StrEqual(key, "conVar_svVoteIssueChangelevelAllowed_value"))
+		{
+			_conVar_svVoteIssueChangelevelAllowed.IntValue = value;
+		}
+		else if (StrEqual(key, "currentGameState"))
+		{
+			_currentGameState = value;
+		}
+		else if (StrEqual(key, "currentVoteType"))
+		{
+			_currentVoteType = value;
+		}
+		else if (StrEqual(key, "_lastMapChangeTimestamp"))
+		{
+			_lastMapChangeTimestamp = value;
+		}
+		else if (StrEqual(key, "playerCount"))
+		{
+			_playerCount = value;
+		}
+		else if (StrEqual(key, "team1GameWins"))
+		{
+			_team1GameWins = value;
+		}
+		else if (StrEqual(key, "team2GameWins"))
+		{
+			_team2GameWins = value;
+		}
+		else if (StrEqual(key, "teamGameWinsRequired"))
+		{
+			_teamGameWinsRequired = value;
+		}
+	}
+
+	if (_currentGameState == GAME_STATE_MATCH_STARTING)
+	{
+		SetGameState(GAME_STATE_MATCH_IN_PROGRESS);
+	}
+}
+
+public void SqlQueryCallback_LoadState2(Handle database, Handle handle, const char[] sError, any data)
+{
+	if (!handle)
+	{
+		ThrowError("SQL query error in SqlQueryCallback_LoadState2: '%s'", sError);
+	}
+
+	while (SQL_FetchRow(handle))
+	{
+		int i = SQL_FetchInt(handle, 0);
+		char value[35];
+		SQL_FetchString(handle, 1, value, sizeof(value));
+
+		_playerAuthIdInfo[i] = value;
+	}
+}
+
+public void SqlQueryCallback_LoadState3(Handle database, Handle handle, const char[] sError, any data)
+{
+	if (!handle)
+	{
+		ThrowError("SQL query error in SqlQueryCallback_LoadState3: '%s'", sError);
+	}
+
+	while (SQL_FetchRow(handle))
+	{
+		int i = SQL_FetchInt(handle, 0);
+		int value = SQL_FetchInt(handle, 1);
+
+		_playerTeamInfo[i] = value;
+	}
+}
+
+public void SqlQueryCallback_Default(Handle database, Handle handle, const char[] sError, any data)
+{
+	if (!handle)
+	{
+		ThrowError("SQL query error in SqlQueryCallback_Default: %d, '%s'", data, sError);
+	}
 }

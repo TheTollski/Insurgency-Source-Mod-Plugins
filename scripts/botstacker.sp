@@ -4,9 +4,9 @@
 #pragma semicolon 1
 #pragma newdecls required
 
-#define PLUGIN_VERSION "1.02"
+#define PLUGIN_VERSION "1.03"
 
-int _maxPlayersToEnableBotStacking = 2;
+int _maxPlayersToEnableBotStacking = 3;
 
 int _botsCurrentlyKickingFromTeam[4] = { 0, 0, 0, 0 };
 bool _botStackingIsEnabled = false;
@@ -294,6 +294,11 @@ public void EnableBotStacking(int teamThatAPlayerIsLeaving, int teamThatAPlayerI
 		_desiredBotsOnOtherTeam = 10;
 	}
 	else if (realPlayersOnTeam == 2)
+	{
+		_desiredBotsOnRealPlayersTeam = 0;
+		_desiredBotsOnOtherTeam = 12;
+	}
+	else if (realPlayersOnTeam == 3)
 	{
 		_desiredBotsOnRealPlayersTeam = 0;
 		_desiredBotsOnOtherTeam = 12;

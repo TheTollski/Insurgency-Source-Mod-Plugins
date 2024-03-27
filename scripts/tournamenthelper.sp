@@ -21,6 +21,7 @@ const int VOTE_TYPE_GAMEWINCOUNT = 2;
 const int VOTE_TYPE_ROUNDWINCOUNT = 3;
 
 ConVar _conVar_insBotQuota = null;
+ConVar _conVar_mpIgnoreTimerConditions = null;
 ConVar _conVar_mpIgnoreWinConditions = null;
 ConVar _conVar_mpMaxRounds = null;
 ConVar _conVar_mpWinLimit = null;
@@ -37,6 +38,7 @@ char _playerAuthIdInfo[MAXPLAYERS + 1][35];
 int _playerCount = 0;
 bool _playerIsRespawnable[MAXPLAYERS + 1] = { false, ...};
 int _playerTeamInfo[MAXPLAYERS + 1] = { -1, ... };
+bool _pluginIsChangingMpIgnoreTimerConditions = false;
 bool _pluginIsChangingMpIgnoreWinConditions = false;
 bool _pluginIsChangingMpMaxRounds = false;
 bool _pluginIsChangingMpWinLimit = false;
@@ -50,9 +52,7 @@ int _teamRoundWinsRequired = 0;
 // Improve map voting.
   // For best 2/3 each team selects a map independently and the team they will be on for that map. For 3rd map (or 1/1), teams vote on map together and teams are random?
 	// Temporary: Ability to call vote during vote screen.
-// Fix respawn bug
 // Allowing late players to join/swapping players in the middle of a match
-// Spawn players after joining team
 // Print winner at end of each game and game wins per team.
 // Teams are forced to not change?
 // Ability to pause the game.
@@ -93,11 +93,13 @@ public void OnPluginStart()
 	mpTeamsUnbalanceLimitConVar.IntValue = 0;
 
 	_conVar_insBotQuota = FindConVar("ins_bot_quota");
+	_conVar_mpIgnoreTimerConditions = FindConVar("mp_ignore_timer_conditions");
 	_conVar_mpIgnoreWinConditions = FindConVar("mp_ignore_win_conditions");
 	_conVar_mpMaxRounds = FindConVar("mp_maxrounds");
 	_conVar_mpWinLimit = FindConVar("mp_winlimit");
 	_conVar_svVoteIssueChangelevelAllowed = FindConVar("sv_vote_issue_changelevel_allowed");
 
+	_conVar_mpIgnoreTimerConditions.AddChangeHook(ConVarChanged_MpIgnoreTimerConditions);
 	_conVar_mpIgnoreWinConditions.AddChangeHook(ConVarChanged_MpIgnoreWinConditions);
 	_conVar_mpMaxRounds.AddChangeHook(ConVarChanged_MpMaxRounds);
 	_conVar_mpWinLimit.AddChangeHook(ConVarChanged_MpWinLimit);
@@ -226,8 +228,8 @@ public Action Command_PrintState(int client, int args)
 
 	ReplyToCommand(client, "\x05[Tournament Helper] Printing current state.");
 	
-	ReplyToCommand(client, "[Tournament Helper] conVar_insBotQuota_value: %d, conVar_mpIgnoreWinConditions_value: %d, conVar_svVoteIssueChangelevelAllowed_value: %d",
-		_conVar_insBotQuota.IntValue, _conVar_mpIgnoreWinConditions.IntValue, _conVar_svVoteIssueChangelevelAllowed.IntValue);
+	ReplyToCommand(client, "[Tournament Helper] conVar_insBotQuota_value: %d, conVar_mpIgnoreTimerConditions_value: %d, conVar_mpIgnoreWinConditions_value: %d, conVar_svVoteIssueChangelevelAllowed_value: %d",
+		_conVar_insBotQuota.IntValue, _conVar_mpIgnoreTimerConditions.IntValue, _conVar_mpIgnoreWinConditions.IntValue, _conVar_svVoteIssueChangelevelAllowed.IntValue);
 	ReplyToCommand(client, "[Tournament Helper] currentGameState: %d, currentVoteType: %d, playerCount: %d, team1GameWins: %d, team2GameWins: %d, teamGameWinsRequired: %d",
 		_currentGameState, _currentVoteType, _playerCount, _team1GameWins, _team2GameWins, _teamGameWinsRequired);
 	ReplyToCommand(client, "[Tournament Helper] teamRoundWinsRequired: %d",
@@ -350,6 +352,17 @@ public Action OnTakeDamage(int client, int &attacker, int &inflictor, float &dam
 //
 // Hooks
 //
+
+public void ConVarChanged_MpIgnoreTimerConditions(ConVar convar, char[] oldValue, char[] newValue)
+{
+	if (_pluginIsChangingMpIgnoreTimerConditions)
+	{
+		return;
+	}
+
+	PrintToConsoleAll("[Tournament Helper] Reverting a server change to mp_ignore_timer_conditions, setting to: %s", oldValue);
+	ChangeMpIgnoreTimerConditions(StringToInt(oldValue));
+}
 
 public void ConVarChanged_MpIgnoreWinConditions(ConVar convar, char[] oldValue, char[] newValue)
 {
@@ -528,6 +541,15 @@ public Action PlayerTeamEvent_ChangeClientTeam_AfterDelay(Handle timer, DataPack
 // Helper Functions
 //
 
+public void ChangeMpIgnoreTimerConditions(int newValue)
+{
+	PrintToServer("[Tournament Helper] Changing mp_ignore_timer_conditions to '%d'.", newValue);
+
+	_pluginIsChangingMpIgnoreTimerConditions = true;
+	_conVar_mpIgnoreTimerConditions.IntValue = newValue;
+	_pluginIsChangingMpIgnoreTimerConditions = false;
+}
+
 public void ChangeMpIgnoreWinConditions(int newValue)
 {
 	PrintToServer("[Tournament Helper] Changing mp_ignore_win_conditions to '%d'.", newValue);
@@ -675,6 +697,7 @@ public void SetGameState(int gameState)
 		_currentVoteType = VOTE_TYPE_NONE;
 
 		_conVar_insBotQuota.IntValue = _normalBotQuota;
+		ChangeMpIgnoreTimerConditions(1);
 		ChangeMpIgnoreWinConditions(1);
 		_conVar_svVoteIssueChangelevelAllowed.IntValue = 1;
 
@@ -726,6 +749,7 @@ public void SetGameState(int gameState)
 	{
 		PrintToChatAll("\x07f5bf03[Tournament Helper] Match is now in progress...");
 
+		ChangeMpIgnoreTimerConditions(0);
 		ChangeMpIgnoreWinConditions(0);
 		_conVar_svVoteIssueChangelevelAllowed.IntValue = 0;
 
@@ -1331,8 +1355,8 @@ public void SaveState()
 	char queryString[512];
 	SQL_FormatQuery(
 		_database, queryString, sizeof(queryString),
-		"REPLACE INTO th_state (key, value) VALUES ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d)",
-		"conVar_insBotQuota_value", _conVar_insBotQuota.IntValue, "conVar_mpIgnoreWinConditions_value", _conVar_mpIgnoreWinConditions.IntValue, "conVar_svVoteIssueChangelevelAllowed_value", _conVar_svVoteIssueChangelevelAllowed.IntValue,
+		"REPLACE INTO th_state (key, value) VALUES ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d)",
+		"conVar_insBotQuota_value", _conVar_insBotQuota.IntValue, "conVar_mpIgnoreTimerConditions_value", _conVar_mpIgnoreTimerConditions.IntValue, "conVar_mpIgnoreWinConditions_value", _conVar_mpIgnoreWinConditions.IntValue, "conVar_svVoteIssueChangelevelAllowed_value", _conVar_svVoteIssueChangelevelAllowed.IntValue,
 		"currentGameState", _currentGameState, "currentVoteType", _currentVoteType, "lastMapChangeTimestamp", _lastMapChangeTimestamp, "matchId", _matchId, "playerCount", _playerCount, "team1GameWins", _team1GameWins, "team2GameWins", _team2GameWins,
 		"teamGameWinsRequired", _teamGameWinsRequired, "teamRoundWinsRequired", _teamRoundWinsRequired);
 	SQL_TQuery(_database, SqlQueryCallback_Default, queryString);
@@ -1405,6 +1429,10 @@ public void SqlQueryCallback_LoadState1(Handle database, Handle handle, const ch
 		if (StrEqual(key, "conVar_insBotQuota_value"))
 		{
 			_conVar_insBotQuota.IntValue = value;
+		}
+		else if (StrEqual(key, "conVar_mpIgnoreTimerConditions_value"))
+		{
+			ChangeMpIgnoreTimerConditions(value);
 		}
 		else if (StrEqual(key, "conVar_mpIgnoreWinConditions_value"))
 		{

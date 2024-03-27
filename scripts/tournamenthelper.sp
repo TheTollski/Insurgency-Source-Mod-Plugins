@@ -1,5 +1,8 @@
+// Note: "plugin.respawn.txt" must be added to the server's "insurgency/addons/sourcemod/gamedata" directory.
+
 #include <sourcemod>
 #include <sdktools>
+#include <sdkhooks>
 
 #pragma semicolon 1
 #pragma newdecls required
@@ -37,6 +40,13 @@ int _teamGameWinsRequired = 0;
 
 // TODO:
 // Automatically change map when match is over, or print hint text.
+// Improve map voting.
+// Fix respawn bug
+// Allowing late players to join/swapping players in the middle of a match
+// Spawn players after joining team
+// Print winner at end of each game and game wins per team.
+// Teams are forced to not change?
+// Abiility to call vote during vote screen.
 
 public Plugin myinfo =
 {
@@ -85,6 +95,15 @@ public void OnPluginStart()
 	StartPrepSDKCall(SDKCall_Player);
 	PrepSDKCall_SetFromConf(gameData, SDKConf_Signature, "ForceRespawn");
 	_forceRespawnHandle = EndPrepSDKCall();
+
+	// Setup Damage Handler
+	for (int i = 1; i < MaxClients; i++)
+	{
+		if (IsClientInGame(i))
+		{
+			SDKHook(i, SDKHook_OnTakeDamage, OnTakeDamage);
+		}
+	}
 
 	ConnectToDatabase();
 }
@@ -138,6 +157,11 @@ public void OnClientPostAdminCheck(int client)
 		PrintToServer("[Tournament Helper] A player connected. Ensuring game state set to idle.");
 		SetGameState(GAME_STATE_IDLE);
 	}
+}
+
+public void OnClientPutInServer(int client)
+{
+	SDKHook(client, SDKHook_OnTakeDamage, OnTakeDamage);
 }
 
 public void OnConfigsExecuted()
@@ -287,6 +311,18 @@ public Action Command_StartVote(int client, int args)
 	return Plugin_Handled;
 }
 
+public Action OnTakeDamage(int client, int &attacker, int &inflictor, float &damage, int &damageType, int &weapon, float damageForce[3], float damagePosition[3], int damagecustom)
+{
+	// PrintToChatAll("OnTakeDamage. client: %d, attacker: %d, inflictor: %d, dmg: %0.1f, damageType: %d, weapon: %d", client, attacker, inflictor, damage, damageType, weapon);
+
+	if (_currentGameState == GAME_STATE_VOTING || _currentGameState == GAME_STATE_MATCH_READY)
+	{
+		return Plugin_Handled;
+	}
+
+	return Plugin_Continue;
+}
+
 //
 // Hooks
 //
@@ -334,12 +370,12 @@ public void Event_GameEnd(Event event, const char[] name, bool dontBroadcast)
 	if (_team1GameWins == _teamGameWinsRequired)
 	{
 		matchWinner = 1;
-		PrintToChatAll("Insurgents team wins the match!");
+		PrintToChatAll("Team 1 wins the match!");
 	}
 	else if (_team2GameWins == _teamGameWinsRequired)
 	{
 		matchWinner = 2;
-		PrintToChatAll("Security team wins the match!");
+		PrintToChatAll("Team 2 wins the match!");
 	}
 
 	if (matchWinner > 0)
@@ -577,7 +613,7 @@ public void SetGameState(int gameState)
 
 	if (_currentGameState == GAME_STATE_VOTING)
 	{
-		PrintToChatAll("\x07f5bf03[Tournament Helper] Voting is in progress. Teams are now locked.");
+		PrintToChatAll("\x07f5bf03[Tournament Helper] Voting is in progress. Teams are now locked. Damage is prevented.");
 	
 		_playerCount = 0;
 		for (int i = 1; i < MaxClients + 1; i++)
@@ -702,6 +738,7 @@ public void Handle_VoteResults(
 		int yesItemIndex = GetMenuItemIndex(menu, num_items, item_info, "yes");
 
 		// Verify yes from each player on a team.
+		bool areAllPlayersReady = true;
 		for (int i = 0; i < _playerCount; i++)
 		{
 			if (_playerTeamInfo[i] != 2 && _playerTeamInfo[i] != 3)
@@ -711,12 +748,16 @@ public void Handle_VoteResults(
 
 			// Get vote for player.
 			int playerVoteItemIndex = GetPlayerVoteItemIndex(menu, num_clients, client_info, _playerAuthIdInfo[i]);
-
 			if (playerVoteItemIndex < 0 || playerVoteItemIndex != yesItemIndex)
 			{
-				SetGameState(GAME_STATE_IDLE);
-				return;
+				areAllPlayersReady = false;
 			}
+		}
+
+		if (!areAllPlayersReady)
+		{
+			SetGameState(GAME_STATE_IDLE);
+			return;
 		}
 
 		PrintToChatAll("\x07f5bf03[Tournament Helper] All players are ready.");
@@ -741,6 +782,8 @@ public void Handle_VoteResults(
 			{
 				PrintToChatAll("[Tournament Helper] Teams did not agree on an option.");	
 			}
+
+			PrintToChatAll("\x07f5bf03[Tournament Helper] Revoting on this option.");
 
 			StartVote(VOTE_TYPE_WINCOUNT, null);
 			return;
@@ -796,7 +839,7 @@ public int GetPlayerVoteItemIndex(
 			GetClientName(client_info[i][VOTEINFO_CLIENT_INDEX], playerName, sizeof(playerName));
 			char item[64];
 			menu.GetItem(client_info[i][VOTEINFO_CLIENT_ITEM], item, sizeof(item));
-			PrintToChatAll("[Tournament Helper] %s voted %s", playerName, item);
+			PrintToChatAll("[Tournament Helper] '%s' voted '%s'", playerName, item);
 
 			return client_info[i][VOTEINFO_CLIENT_ITEM];
 		}
@@ -834,8 +877,19 @@ public int GetTeamVoteItemIndex(
 		}
 
 		int playerVoteItemIndex = GetPlayerVoteItemIndex(menu, num_clients, client_info, _playerAuthIdInfo[i]);
+		if (playerVoteItemIndex < 0)
+		{
+			// Player didn't vote.
+			continue;
+		}
+
 		teamVoteCountByItem[playerVoteItemIndex]++;
 		teamVoteCountTotal++;
+	}
+
+	if (teamVoteCountTotal == 0)
+	{
+		return -team;
 	}
 
 	for (int i = 0; i < maxItemIndex + 1; i++)

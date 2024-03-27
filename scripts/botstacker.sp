@@ -4,7 +4,7 @@
 #pragma semicolon 1
 #pragma newdecls required
 
-#define PLUGIN_VERSION "1.03"
+#define PLUGIN_VERSION "1.04"
 
 int _maxPlayersToEnableBotStacking = 3;
 
@@ -36,11 +36,45 @@ public void OnPluginStart()
 
 	HookEvent("player_team", Event_PlayerTeam);
 
-	RegConsoleCmd("sm_testplayerjoiningsecurity", Command_TestPlayerJoiningSecurity, "Acts as if a player is joining Security.");
-	RegConsoleCmd("sm_testplayerjoininginsurgents", Command_TestPlayerJoiningInsurgents, "Acts as if a player is joining Insurgents.");
-	RegConsoleCmd("sm_testplayerleavingsecurity", Command_TestPlayerLeavingSecurity, "Acts as if a player is leaving Security.");
-	RegConsoleCmd("sm_testplayerleavinginsurgents", Command_TestPlayerLeavingInsurgents, "Acts as if a player is leaving Insurgents.");
-	// todo: OnClientConnect kick a bot if server is full
+	//RegConsoleCmd("sm_testplayerjoiningsecurity", Command_TestPlayerJoiningSecurity, "Acts as if a player is joining Security.");
+	//RegConsoleCmd("sm_testplayerjoininginsurgents", Command_TestPlayerJoiningInsurgents, "Acts as if a player is joining Insurgents.");
+	//RegConsoleCmd("sm_testplayerleavingsecurity", Command_TestPlayerLeavingSecurity, "Acts as if a player is leaving Security.");
+	//RegConsoleCmd("sm_testplayerleavinginsurgents", Command_TestPlayerLeavingInsurgents, "Acts as if a player is leaving Insurgents.");
+}
+
+public bool OnClientConnect(int client, char[] rejectmsg, int maxlen)
+{
+	int clientCount = GetClientCount(false);
+	bool isFakeClient = IsFakeClient(client);
+
+	//PrintToChatAll("OnClientConnect. clientCount: %d, MaxClients: %d, isFakeClient: %d.", clientCount, MaxClients, isFakeClient);
+	if (clientCount == MaxClients && !isFakeClient)
+	{
+		for (int i = 1; i < MaxClients + 1; i++)
+		{
+			if (IsClientInGame(i) && IsFakeClient(i))
+			{
+				PrintToServer("[Bot Stacker] A human is trying to connect to fill the last open slot on the server. Kicking a random bot to keep an open slot on the server.");
+				KickClient(i);
+				return true;
+			}
+		}
+	}
+
+	return true;
+}
+
+public void OnClientConnected(int client)
+{
+	int clientCount = GetClientCount(false);
+	bool isFakeClient = IsFakeClient(client);
+
+	//PrintToChatAll("OnClientConnected. clientCount: %d, MaxClients: %d, isFakeClient: %d.", clientCount, MaxClients, isFakeClient);
+	if (clientCount == MaxClients && isFakeClient)
+	{
+		PrintToServer("[Bot Stacker] A bot connected and filled the last open slot on the server. Kicking bot.");
+		KickClient(client);	
+	}
 }
 
 public void OnClientPutInServer(int client)
@@ -223,6 +257,7 @@ public void EnableBotStacking(int teamThatAPlayerIsLeaving, int teamThatAPlayerI
 	if (!_botStackingIsEnabled)
 	{
 		PrintToServer("[Bot Stacker] EnableBotStacking");
+		PrintToChatAll("[Bot Stacker] All players are on one team. Enabling bot stacking.");
 		_botStackingIsEnabled = true;
 		
 		ChangeBotQuota(8, true); // todo: set quota based on max players
@@ -319,6 +354,7 @@ public void DisableBotStacking()
 	}
 	
 	PrintToServer("[Bot Stacker] DisableBotStacking");
+	PrintToChatAll("[Bot Stacker] More than %d players in server or players are not on one team. Disabling bot stacking.", _maxPlayersToEnableBotStacking);
 	_botStackingIsEnabled = false;
 	_desiredBotsOnRealPlayersTeam = 0;
 	_desiredBotsOnOtherTeam = 0;

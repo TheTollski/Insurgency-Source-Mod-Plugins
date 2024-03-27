@@ -299,21 +299,15 @@ public void ShowMarker(int entityToMark, const char[] renderColor)
 		return;
 	}
 
-	DispatchKeyValue(laserEntity,"spawnflags", "49");
+	DispatchKeyValue(laserEntity,"spawnflags", "1"); // 1: Start On
 	DispatchKeyValue(laserEntity,"targetname", "MarkerLaser");
-	DispatchKeyValue(laserEntity,"renderfx", "0");
 	DispatchKeyValue(laserEntity,"LaserTarget", entityTargetName);
-	DispatchKeyValue(laserEntity,"renderamt", "188");
+	DispatchKeyValue(laserEntity,"renderamt", "150");
 	DispatchKeyValue(laserEntity,"rendercolor", renderColor);
-	DispatchKeyValue(laserEntity,"Radius", "256");
-	DispatchKeyValue(laserEntity,"life", "0");
 	DispatchKeyValue(laserEntity,"width", "10");
 	DispatchKeyValue(laserEntity,"NoiseAmplitude", "0");
 	DispatchKeyValue(laserEntity,"texture", "sprites/laserbeam.spr");
 	DispatchKeyValue(laserEntity,"TextureScroll", "100");
-	DispatchKeyValue(laserEntity,"framerate", "0");
-	DispatchKeyValue(laserEntity,"framestart", "0");
-	DispatchKeyValue(laserEntity,"StrikeTime", "10");
 	DispatchKeyValue(laserEntity,"damage", "0");
 	DispatchSpawn(laserEntity);
 	TeleportEntity(laserEntity, laserPosition, NULL_VECTOR, NULL_VECTOR);

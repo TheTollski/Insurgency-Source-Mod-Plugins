@@ -6,6 +6,7 @@
 
 #define PLUGIN_VERSION "1.00"
 
+StringMap _authIdDisconnectTimestampMap;
 Database _database;
 int _lastActiveTimeSavedTimestamps[MAXPLAYERS + 1] = { 0, ... };
 int _lastConnectedTimeSavedTimestamps[MAXPLAYERS + 1] = { 0, ... };
@@ -33,6 +34,8 @@ public void OnPluginStart()
 	RegConsoleCmd("sm_mystats", Command_MyStats, "Prints your stats.");
 
 	ConnectToDatabase();
+
+	_authIdDisconnectTimestampMap = new StringMap();
 }
 
 public void OnClientDisconnect(int client)
@@ -44,6 +47,12 @@ public void OnClientDisconnect(int client)
 
 	UpdateClientActiveAndConnectedTimes(client);
 
+	char authId[35];
+	GetClientAuthId(client, AuthId_Steam2, authId, sizeof(authId));
+
+	int timestamp = GetTime();
+
+	_authIdDisconnectTimestampMap.SetValue(authId, timestamp, true);
 	_lastActiveTimeSavedTimestamps[client] = 0;
 	_lastConnectedTimeSavedTimestamps[client] = 0;
 }
@@ -104,19 +113,19 @@ public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast
 	int attackerClient = GetClientOfUserId(attackerUserid);
 	int victimClient = GetClientOfUserId(victimUserid);
 
-	int assister = event.GetInt("assister");
-	int damagebits = event.GetInt("damagebits");
-	int deathflags = event.GetInt("deathflags");
-	int lives = event.GetInt("lives");
-	int priority = event.GetInt("priority");
-	char weapon[64];
-	event.GetString("weapon", weapon, sizeof(weapon));
-	int weaponid = event.GetInt("weaponid");
-	float x = event.GetFloat("x");
-	float y = event.GetFloat("y");
-	float z = event.GetFloat("z");
-	PrintToChatAll("attackerUserid: %d, victimUserid: %d, attackerTeam: %d, victimTeam: %d, assister: %d, damagebits: %d, deathflags: %d, lives: %d, priority: %d, weapon: %s, weaponid: %d, x: %d, y: %d, z: %d",
-		attackerClient, victimUserid, attackerTeam, victimTeam, assister, damagebits, deathflags, lives, priority, weapon, weaponid, x, y ,z);
+	// int assister = event.GetInt("assister");
+	// int damagebits = event.GetInt("damagebits");
+	// int deathflags = event.GetInt("deathflags");
+	// int lives = event.GetInt("lives");
+	// int priority = event.GetInt("priority");
+	// char weapon[64];
+	// event.GetString("weapon", weapon, sizeof(weapon));
+	// int weaponid = event.GetInt("weaponid");
+	// float x = event.GetFloat("x");
+	// float y = event.GetFloat("y");
+	// float z = event.GetFloat("z");
+	// PrintToChatAll("attackerUserid: %d, victimUserid: %d, attackerTeam: %d, victimTeam: %d, assister: %d, damagebits: %d, deathflags: %d, lives: %d, priority: %d, weapon: %s, weaponid: %d, x: %d, y: %d, z: %d",
+	// 	attackerClient, victimUserid, attackerTeam, victimTeam, assister, damagebits, deathflags, lives, priority, weapon, weaponid, x, y ,z);
 
 	bool victimIsBot = IsFakeClient(victimClient);
 
@@ -334,6 +343,12 @@ public void SqlQueryCallback_OnClientPostAdminCheck1(Handle database, Handle han
 	GetClientName(client, name, sizeof(name));
 
 	int timestamp = GetTime();
+
+	int disconnectTimestamp;
+	if (_authIdDisconnectTimestampMap.GetValue(authId, disconnectTimestamp) && timestamp - disconnectTimestamp < 300)
+	{
+		return;
+	}
 
 	if (SQL_GetRowCount(handle) == 0)
 	{

@@ -49,8 +49,6 @@ char _playerAuthIdInfo[MAXPLAYERS + 1][35];
 int _playerCount = 0;
 bool _playerIsRespawnable[MAXPLAYERS + 1] = { false, ...};
 int _playerTeamInfo[MAXPLAYERS + 1] = { -1, ... };
-bool _pluginIsChangingMpIgnoreTimerConditions = false;
-bool _pluginIsChangingMpIgnoreWinConditions = false;
 bool _pluginIsChangingMpMaxRounds = false;
 bool _pluginIsChangingMpWinLimit = false;
 int _teamAGameWins = 0; // This team joined as security.
@@ -61,13 +59,18 @@ int _teamGameWinsRequired = 0;
 int _teamRoundWinsRequired = 0;
 
 // TODO:
-// BUGGGGG: Don't revert win condition during match because demo bug!
+// Bug: Spectators getting forced to team and can't rejoin match.
+// Should players on no team allow ready vote to be called?
 // Automatically change map when match is over, or print hint text.
 // Allowing late players to join/swapping players in the middle of a match
 // Ability to pause the game.
 // Bug: Security left server and then Insurgents had to repick class.
 // Remove bots as players join.
 // Allow all players to join teams before starting first round of a game.
+// simpleplayerstats should only capture stats during matches
+// capture very basic stats to save to match history
+// don't cancel vote if nobody votes (time limit + cancelvote command?)
+// spectators are causing votes to take full 30 seconds
 
 public Plugin myinfo =
 {
@@ -109,8 +112,6 @@ public void OnPluginStart()
 	_conVar_mpWinLimit = FindConVar("mp_winlimit");
 	_conVar_svVoteIssueChangelevelAllowed = FindConVar("sv_vote_issue_changelevel_allowed");
 
-	_conVar_mpIgnoreTimerConditions.AddChangeHook(ConVarChanged_MpIgnoreTimerConditions);
-	_conVar_mpIgnoreWinConditions.AddChangeHook(ConVarChanged_MpIgnoreWinConditions);
 	_conVar_mpMaxRounds.AddChangeHook(ConVarChanged_MpMaxRounds);
 	_conVar_mpWinLimit.AddChangeHook(ConVarChanged_MpWinLimit);
 
@@ -376,28 +377,6 @@ public Action OnTakeDamage(int client, int &attacker, int &inflictor, float &dam
 // Hooks
 //
 
-public void ConVarChanged_MpIgnoreTimerConditions(ConVar convar, char[] oldValue, char[] newValue)
-{
-	if (_pluginIsChangingMpIgnoreTimerConditions)
-	{
-		return;
-	}
-
-	PrintToConsoleAll("[Tournament Helper] Reverting a server change to mp_ignore_timer_conditions, setting to: %s", oldValue);
-	ChangeMpIgnoreTimerConditions(StringToInt(oldValue));
-}
-
-public void ConVarChanged_MpIgnoreWinConditions(ConVar convar, char[] oldValue, char[] newValue)
-{
-	if (_pluginIsChangingMpIgnoreWinConditions)
-	{
-		return;
-	}
-
-	PrintToConsoleAll("[Tournament Helper] Reverting a server change to mp_ignore_win_conditions, setting to: %s", oldValue);
-	ChangeMpIgnoreWinConditions(StringToInt(oldValue));
-}
-
 public void ConVarChanged_MpMaxRounds(ConVar convar, char[] oldValue, char[] newValue)
 {
 	if (_pluginIsChangingMpMaxRounds)
@@ -638,24 +617,6 @@ public Action ChangeMap_AfterDelay(Handle timer, DataPack inputPack)
 	return Plugin_Stop;
 }
 
-public void ChangeMpIgnoreTimerConditions(int newValue)
-{
-	PrintToServer("[Tournament Helper] Changing mp_ignore_timer_conditions to '%d'.", newValue);
-
-	_pluginIsChangingMpIgnoreTimerConditions = true;
-	_conVar_mpIgnoreTimerConditions.IntValue = newValue;
-	_pluginIsChangingMpIgnoreTimerConditions = false;
-}
-
-public void ChangeMpIgnoreWinConditions(int newValue)
-{
-	PrintToServer("[Tournament Helper] Changing mp_ignore_win_conditions to '%d'.", newValue);
-
-	_pluginIsChangingMpIgnoreWinConditions = true;
-	_conVar_mpIgnoreWinConditions.IntValue = newValue;
-	_pluginIsChangingMpIgnoreWinConditions = false;
-}
-
 public void ChangeMpMaxRounds(int newValue)
 {
 	PrintToServer("[Tournament Helper] Changing mp_maxrounds to '%d'.", newValue);
@@ -843,8 +804,8 @@ public void SetGameState(int gameState)
 		_currentVoteType = VOTE_TYPE_NONE;
 
 		_conVar_insBotQuota.IntValue = _normalBotQuota;
-		ChangeMpIgnoreTimerConditions(1);
-		ChangeMpIgnoreWinConditions(1);
+		_conVar_mpIgnoreTimerConditions.IntValue = 1;
+		_conVar_mpIgnoreWinConditions.IntValue = 1;
 		_conVar_svVoteIssueChangelevelAllowed.IntValue = 1;
 
 		EnableRespawning();
@@ -898,8 +859,8 @@ public void SetGameState(int gameState)
 	{
 		PrintToChatAll("\x07f5bf03[Tournament Helper] Match is now in progress...");
 
-		ChangeMpIgnoreTimerConditions(0);
-		ChangeMpIgnoreWinConditions(0);
+		_conVar_mpIgnoreTimerConditions.IntValue = 0;
+		_conVar_mpIgnoreWinConditions.IntValue = 0;
 		_conVar_svVoteIssueChangelevelAllowed.IntValue = 0;
 
 		_teamAGameWins = 0;
@@ -1612,7 +1573,7 @@ public void SqlQueryCallback_Command_MatchHistory1(Handle database, Handle handl
 		int endTimestamp = SQL_FetchInt(handle, 3);
 		int teamAGameWins = SQL_FetchInt(handle, 4);
 		int teamBGameWins = SQL_FetchInt(handle, 5);
-		char matchWinningTeam[1];
+		char matchWinningTeam[2];
 		SQL_FetchString(handle, 6, matchWinningTeam, sizeof(matchWinningTeam));
 
 		char readyDateTime[32]; 
@@ -1788,11 +1749,11 @@ public void SqlQueryCallback_LoadState1(Handle database, Handle handle, const ch
 		}
 		else if (StrEqual(key, "conVar_mpIgnoreTimerConditions_value"))
 		{
-			ChangeMpIgnoreTimerConditions(valueInt);
+			_conVar_mpIgnoreTimerConditions.IntValue = valueInt;
 		}
 		else if (StrEqual(key, "conVar_mpIgnoreWinConditions_value"))
 		{
-			ChangeMpIgnoreWinConditions(valueInt);
+			_conVar_mpIgnoreWinConditions.IntValue = valueInt;
 		}
 		else if (StrEqual(key, "conVar_svVoteIssueChangelevelAllowed_value"))
 		{

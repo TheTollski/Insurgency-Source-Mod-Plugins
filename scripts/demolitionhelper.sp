@@ -176,7 +176,7 @@ public void MarkBomb()
 
 		float laserPosition[3];
 		GetEntPropVector(entityToGetPosition, Prop_Send, "m_vecOrigin", laserPosition);
-		laserPosition[2] = laserPosition[2] + 500;
+		laserPosition[2] = laserPosition[2] + 800;
 
 		_laserEntity = CreateEntityByName("env_laser");
 		if (_laserEntity == -1)
@@ -195,7 +195,7 @@ public void MarkBomb()
 		DispatchKeyValue(_laserEntity,"width", "10");
 		DispatchKeyValue(_laserEntity,"NoiseAmplitude", "0");
 		DispatchKeyValue(_laserEntity,"texture", "sprites/laserbeam.spr");
-		DispatchKeyValue(_laserEntity,"TextureScroll", "35");
+		DispatchKeyValue(_laserEntity,"TextureScroll", "100");
 		DispatchKeyValue(_laserEntity,"framerate", "0");
 		DispatchKeyValue(_laserEntity,"framestart", "0");
 		DispatchKeyValue(_laserEntity,"StrikeTime", "10");

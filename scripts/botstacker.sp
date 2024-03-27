@@ -4,7 +4,7 @@
 #pragma semicolon 1
 #pragma newdecls required
 
-#define PLUGIN_VERSION "1.05"
+#define PLUGIN_VERSION "1.06"
 
 int _maxPlayersToEnableBotStacking = 3;
 
@@ -35,7 +35,9 @@ public void OnPluginStart()
 	insBotQuotaConVar.AddChangeHook(ConVarChanged_InsBotQuota);
 
 	HookEvent("player_team", Event_PlayerTeam);
+	HookEvent("round_end", Event_RoundEnd);
 
+	RegConsoleCmd("sm_setbotcounts", Command_SetBotCounts, "Sets desired bot counts for each team.");
 	//RegConsoleCmd("sm_testplayerjoiningsecurity", Command_TestPlayerJoiningSecurity, "Acts as if a player is joining Security.");
 	//RegConsoleCmd("sm_testplayerjoininginsurgents", Command_TestPlayerJoiningInsurgents, "Acts as if a player is joining Insurgents.");
 	//RegConsoleCmd("sm_testplayerleavingsecurity", Command_TestPlayerLeavingSecurity, "Acts as if a player is leaving Security.");
@@ -112,7 +114,7 @@ public void OnMapStart()
 public Action Command_TestPlayerJoiningSecurity(int client, int args)
 {
 	if (args != 0) {
-		ReplyToCommand(client, "[SM] Usage: sm_testplayerjoiningsecurity");
+		ReplyToCommand(client, "[Bot Stacker] Usage: sm_testplayerjoiningsecurity");
 		return Plugin_Handled;
 	}
 	
@@ -120,10 +122,60 @@ public Action Command_TestPlayerJoiningSecurity(int client, int args)
 	return Plugin_Handled;
 }
 
+public Action Command_SetBotCounts(int client, int args)
+{
+	if (args != 2) {
+		ReplyToCommand(client, "[Bot Stacker] Usage: sm_setbotcounts <desiredAlliedBotCount> <desiredEnemyBotCount>");
+		return Plugin_Handled;
+	}
+
+	char arg1[32];
+	GetCmdArg(1, arg1, sizeof(arg1));
+	int desiredBotsOnRealPlayersTeam = StringToInt(arg1);
+
+	char arg2[32];
+	GetCmdArg(2, arg2, sizeof(arg2));
+	int desiredBotsOnOtherTeam = StringToInt(arg2);
+	
+	if (!_botStackingIsEnabled)
+	{
+		ReplyToCommand(client, "[Bot Stacker] Failed to set bot counts; bot stacking is not currently enabled.");
+		return Plugin_Handled;
+	}
+
+	int realPlayersOnTeam = 0;
+	for (int i = 0; i < sizeof(_clientsRealPlayerStatus); i++)
+	{
+		if (_clientsRealPlayerStatus[i] && GetClientTeam(i) == _teamWithRealPlayers)
+		{
+			realPlayersOnTeam++;
+		}
+	}
+
+	if (realPlayersOnTeam > 1)
+	{
+		ReplyToCommand(client, "[Bot Stacker] Failed to set bot counts; you aren't the only player on your team.");
+		return Plugin_Handled;
+	}
+
+	int maxBotsCurrentlyAllowed = MaxClients - realPlayersOnTeam - 2;
+	if (desiredBotsOnRealPlayersTeam + desiredBotsOnOtherTeam > maxBotsCurrentlyAllowed)
+	{
+		ReplyToCommand(client, "[Bot Stacker] Failed to set bot counts; selected bot counts are too high. Max bots you can currently add is %d.", maxBotsCurrentlyAllowed);
+		return Plugin_Handled;
+	}
+
+	_desiredBotsOnRealPlayersTeam = desiredBotsOnRealPlayersTeam;
+	_desiredBotsOnOtherTeam = desiredBotsOnOtherTeam;
+	SetBotsPerTeam(_teamWithRealPlayers == 2 ? _desiredBotsOnRealPlayersTeam : _desiredBotsOnOtherTeam, _teamWithRealPlayers == 3 ? _desiredBotsOnRealPlayersTeam : _desiredBotsOnOtherTeam);
+	ReplyToCommand(client, "[Bot Stacker] Allied bot count set to %d. Enemy bot count set to %d.", _desiredBotsOnRealPlayersTeam, _desiredBotsOnOtherTeam);
+	return Plugin_Handled;
+}
+
 public Action Command_TestPlayerJoiningInsurgents(int client, int args)
 {
 	if (args != 0) {
-		ReplyToCommand(client, "[SM] Usage: sm_testplayerjoininginsurgents");
+		ReplyToCommand(client, "[Bot Stacker] Usage: sm_testplayerjoininginsurgents");
 		return Plugin_Handled;
 	}
 	
@@ -134,7 +186,7 @@ public Action Command_TestPlayerJoiningInsurgents(int client, int args)
 public Action Command_TestPlayerLeavingSecurity(int client, int args)
 {
 	if (args != 0) {
-		ReplyToCommand(client, "[SM] Usage: sm_testplayerleavingsecurity");
+		ReplyToCommand(client, "[Bot Stacker] Usage: sm_testplayerleavingsecurity");
 		return Plugin_Handled;
 	}
 	
@@ -145,7 +197,7 @@ public Action Command_TestPlayerLeavingSecurity(int client, int args)
 public Action Command_TestPlayerLeavingInsurgents(int client, int args)
 {
 	if (args != 0) {
-		ReplyToCommand(client, "[SM] Usage: sm_testplayerleavinginsurgents");
+		ReplyToCommand(client, "[Bot Stacker] Usage: sm_testplayerleavinginsurgents");
 		return Plugin_Handled;
 	}
 	
@@ -193,6 +245,43 @@ public void Event_PlayerTeam(Event event, const char[] name, bool dontBroadcast)
 	pack.WriteCell(team);
 		
 	CreateTimer(0.25, PlayerTeamEvent_Bot_AfterDelay, pack);
+}
+
+public void Event_RoundEnd(Event event, const char[] name, bool dontBroadcast)
+{
+	// If there are too many bots on one team the game won't add enough bots to the other team to stack teams as desired.
+	ConVar insBotQuotaConVar = FindConVar("ins_bot_quota");
+	int currentBotQuota = insBotQuotaConVar.IntValue;
+
+	int currentBotsOnSecurity = 0;
+	int currentBotsOnInsurgents = 0;
+	for (int i = 1; i < MaxClients + 1; i++)
+	{
+		if (IsClientInGame(i) && IsFakeClient(i))
+		{
+			int t = GetClientTeam(i);
+			if(t == 2)
+			{
+				if (currentBotsOnSecurity >= currentBotQuota)
+				{
+					KickClient(i);
+					continue;
+				}
+				
+				currentBotsOnSecurity++;
+			}
+			else if (t == 3)
+			{
+				if (currentBotsOnInsurgents >= currentBotQuota)
+				{
+					KickClient(i);
+					continue;
+				}
+
+				currentBotsOnInsurgents++;
+			}
+		}
+	}
 }
 
 // 
@@ -331,12 +420,12 @@ public void EnableBotStacking(int teamThatAPlayerIsLeaving, int teamThatAPlayerI
 	else if (realPlayersOnTeam == 2)
 	{
 		_desiredBotsOnRealPlayersTeam = 0;
-		_desiredBotsOnOtherTeam = 10;
+		_desiredBotsOnOtherTeam = 9;
 	}
 	else if (realPlayersOnTeam == 3)
 	{
 		_desiredBotsOnRealPlayersTeam = 0;
-		_desiredBotsOnOtherTeam = 12;
+		_desiredBotsOnOtherTeam = 11;
 	}
 	else
 	{
@@ -345,12 +434,22 @@ public void EnableBotStacking(int teamThatAPlayerIsLeaving, int teamThatAPlayerI
 		return;
 	}
 
-	if (_desiredBotsOnOtherTeam > MaxClients - realPlayersOnTeam - _desiredBotsOnRealPlayersTeam - 1)
+	int maxBotsCurrentlyAllowed = MaxClients - realPlayersOnTeam - 2;
+	if (_desiredBotsOnRealPlayersTeam + _desiredBotsOnOtherTeam > maxBotsCurrentlyAllowed)
 	{
-		_desiredBotsOnOtherTeam = MaxClients - realPlayersOnTeam - _desiredBotsOnRealPlayersTeam - 1;
+		_desiredBotsOnOtherTeam = maxBotsCurrentlyAllowed - _desiredBotsOnRealPlayersTeam;
 	}
 
 	SetBotsPerTeam(_teamWithRealPlayers == 2 ? _desiredBotsOnRealPlayersTeam : _desiredBotsOnOtherTeam, _teamWithRealPlayers == 3 ? _desiredBotsOnRealPlayersTeam : _desiredBotsOnOtherTeam);
+	
+	if (realPlayersOnTeam == 1)
+	{
+		PrintToChatAll("[Bot Stacker] Allied bot count set to %d. Enemy bot count set to %d. In single player mode you can set bot counts by typing: !setbotcounts <desiredAlliedBotCount> <desiredEnemyBotCount> (eg. '!setbotcounts 0 13').", _desiredBotsOnRealPlayersTeam, _desiredBotsOnOtherTeam);
+	}
+	else
+	{
+		PrintToChatAll("[Bot Stacker] Allied bot count set to %d. Enemy bot count set to %d.", _desiredBotsOnRealPlayersTeam, _desiredBotsOnOtherTeam);
+	}
 }
 
 public void DisableBotStacking()

@@ -7,6 +7,7 @@
 #define PLUGIN_VERSION "1.01"
 
 bool _isEnabled = false;
+int _laserEntity = -1;
 int _normalMpIgnoreWinConditionsValue;
 
 public Plugin myinfo = 
@@ -36,9 +37,7 @@ public Action OnClientSayCommand(int client, const char[] command, const char[] 
 	if (StrContains(sArgs, "HAVE PICKED UP THE BOMB!", false) >= 0)
 	{
 		int teamWithBomb = StrContains(sArgs, "SEALS", false) >= 0 ? 2 : 3;
-		char[] yourTeamMessage = "Your team has picked up the bomb!";
-		char[] enemyTeamMessage = "The enemy team has picked up the bomb!";
-		PrintHintToPlayersByTeam(teamWithBomb == 2 ? yourTeamMessage : enemyTeamMessage, teamWithBomb == 3 ? yourTeamMessage : enemyTeamMessage);
+		OnBombPickedUp(teamWithBomb);
 	}
 
 	if (StrContains(sArgs, "HAVE PLANTED THE BOMB!", false) >= 0)
@@ -99,6 +98,7 @@ public void Event_RoundStart(Event event, const char[] name, bool dontBroadcast)
 	}
 	
 	PrintCenterTextAll("Get the bomb and plant it at the enemy's base!");
+	MarkBomb();
 }
 
 // 
@@ -128,39 +128,16 @@ public void OnBombDropped()
 {
 	PrintHintTextToAll("The bomb has been dropped!");
 
-	int bombEntity = GetEntityByNameAndClassName("bomb", "prop_dynamic_override");
-	if (bombEntity > -1)
-	{
-		PrintToChatAll("[DemolitionHelper] Moving bomb to control point B.");
+	MarkBomb();
+}
 
-		int entityToGetPosition = bombEntity;
-		int entityParent = -1;
-		while ((entityParent = GetEntPropEnt(entityToGetPosition, Prop_Send, "moveparent")) != -1)
-		{
-			entityToGetPosition = entityParent;
-		}
+public void OnBombPickedUp(int teamWithBomb)
+{
+	char[] yourTeamMessage = "Your team has picked up the bomb!";
+	char[] enemyTeamMessage = "The enemy team has picked up the bomb!";
+	PrintHintToPlayersByTeam(teamWithBomb == 2 ? yourTeamMessage : enemyTeamMessage, teamWithBomb == 3 ? yourTeamMessage : enemyTeamMessage);
 
-		float bombPosition[3];
-		GetEntPropVector(entityToGetPosition, Prop_Send, "m_vecOrigin", bombPosition);
-
-		PrintToChatAll("[DemolitionHelper] Bomb position: %d %d %d.", bombPosition[0], bombPosition[1], bombPosition[2]);
-
-		int entity = CreateEntityByName("light_dynamic");
-		if (entity == -1) return;
-
-		DispatchKeyValue(entity, "_light", "250 250 200");
-		DispatchKeyValue(entity, "brightness", "10");
-		DispatchKeyValueFloat(entity, "spotlight_radius", 320.0);
-		DispatchKeyValueFloat(entity, "distance", 1000.0);
-		DispatchKeyValue(entity, "style", "0");
-		// SetEntProp(entity, Prop_Send, "m_clrRender", color);
-
-		bombPosition[2] = bombPosition[2] + 100;
-		DispatchSpawn(entity);
-		AcceptEntityInput(entity, "TurnOn");
-		TeleportEntity(entity, bombPosition, NULL_VECTOR, NULL_VECTOR);
-		PrintToChatAll("[DemolitionHelper] Light spawned.");
-	}
+	UnmarkBomb();
 }
 
 public int GetEntityByNameAndClassName(const char[] entityName, const char[] entityClassName)
@@ -178,4 +155,63 @@ public int GetEntityByNameAndClassName(const char[] entityName, const char[] ent
 	}
 
 	return entity;
+}
+
+public void MarkBomb()
+{
+	if (_laserEntity != -1)
+	{
+		UnmarkBomb();
+	}
+
+	int bombEntity = GetEntityByNameAndClassName("bomb", "prop_dynamic_override");
+	if (bombEntity > -1)
+	{
+		int entityToGetPosition = bombEntity;
+		int entityParent = -1;
+		while ((entityParent = GetEntPropEnt(entityToGetPosition, Prop_Send, "moveparent")) != -1)
+		{
+			entityToGetPosition = entityParent;
+		}
+
+		float laserPosition[3];
+		GetEntPropVector(entityToGetPosition, Prop_Send, "m_vecOrigin", laserPosition);
+		laserPosition[2] = laserPosition[2] + 500;
+
+		_laserEntity = CreateEntityByName("env_laser");
+		if (_laserEntity == -1)
+		{
+			return;
+		} 
+
+		DispatchKeyValue(_laserEntity,"spawnflags", "49");
+		DispatchKeyValue(_laserEntity,"targetname", "my_laser");
+		DispatchKeyValue(_laserEntity,"renderfx", "0");
+		DispatchKeyValue(_laserEntity,"LaserTarget", "bomb");
+		DispatchKeyValue(_laserEntity,"renderamt", "188");
+		DispatchKeyValue(_laserEntity,"rendercolor", "255 0 0");
+		DispatchKeyValue(_laserEntity,"Radius", "256");
+		DispatchKeyValue(_laserEntity,"life", "0");
+		DispatchKeyValue(_laserEntity,"width", "10");
+		DispatchKeyValue(_laserEntity,"NoiseAmplitude", "0");
+		DispatchKeyValue(_laserEntity,"texture", "sprites/laserbeam.spr");
+		DispatchKeyValue(_laserEntity,"TextureScroll", "35");
+		DispatchKeyValue(_laserEntity,"framerate", "0");
+		DispatchKeyValue(_laserEntity,"framestart", "0");
+		DispatchKeyValue(_laserEntity,"StrikeTime", "10");
+		DispatchKeyValue(_laserEntity,"damage", "0");
+		DispatchSpawn(_laserEntity);
+		TeleportEntity(_laserEntity, laserPosition, NULL_VECTOR, NULL_VECTOR);
+	}
+}
+
+public void UnmarkBomb()
+{
+	if (_laserEntity == -1)
+	{
+		return;
+	}
+
+	AcceptEntityInput(_laserEntity, "Kill");
+	_laserEntity = -1;
 }

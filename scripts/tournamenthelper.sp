@@ -17,10 +17,13 @@ const int GAME_STATE_MATCH_IN_PROGRESS = 4;
 
 const int VOTE_TYPE_NONE = 0;
 const int VOTE_TYPE_READY = 1;
-const int VOTE_TYPE_WINCOUNT = 2;
+const int VOTE_TYPE_GAMEWINCOUNT = 2;
+const int VOTE_TYPE_ROUNDWINCOUNT = 3;
 
 ConVar _conVar_insBotQuota = null;
 ConVar _conVar_mpIgnoreWinConditions = null;
+ConVar _conVar_mpMaxRounds = null;
+ConVar _conVar_mpWinLimit = null;
 ConVar _conVar_svVoteIssueChangelevelAllowed = null;
 Database _database = null;
 Handle _forceRespawnHandle = INVALID_HANDLE;
@@ -34,19 +37,27 @@ char _playerAuthIdInfo[MAXPLAYERS + 1][35];
 int _playerCount = 0;
 int _playerTeamInfo[MAXPLAYERS + 1] = { -1, ... };
 bool _pluginIsChangingMpIgnoreWinConditions = false;
+bool _pluginIsChangingMpMaxRounds = false;
+bool _pluginIsChangingMpWinLimit = false;
 int _team1GameWins = 0; // This team joined as insurgents.
 int _team2GameWins = 0; // This team joined as security.
 int _teamGameWinsRequired = 0;
+int _teamRoundWinsRequired = 0;
 
 // TODO:
 // Automatically change map when match is over, or print hint text.
 // Improve map voting.
+  // For best 2/3 each team selects a map independently and the team they will be on for that map. For 3rd map (or 1/1), teams vote on map together and teams are random?
+	// Temporary: Ability to call vote during vote screen.
 // Fix respawn bug
 // Allowing late players to join/swapping players in the middle of a match
 // Spawn players after joining team
 // Print winner at end of each game and game wins per team.
 // Teams are forced to not change?
-// Abiility to call vote during vote screen.
+// Ability to pause the game.
+// Bug: Security left server and then Insurgents had to repick class.
+// Remove bots as players join.
+// Allow all players to join teams before starting first round of a game.
 
 public Plugin myinfo =
 {
@@ -82,9 +93,13 @@ public void OnPluginStart()
 
 	_conVar_insBotQuota = FindConVar("ins_bot_quota");
 	_conVar_mpIgnoreWinConditions = FindConVar("mp_ignore_win_conditions");
+	_conVar_mpMaxRounds = FindConVar("mp_maxrounds");
+	_conVar_mpWinLimit = FindConVar("mp_winlimit");
 	_conVar_svVoteIssueChangelevelAllowed = FindConVar("sv_vote_issue_changelevel_allowed");
 
 	_conVar_mpIgnoreWinConditions.AddChangeHook(ConVarChanged_MpIgnoreWinConditions);
+	_conVar_mpMaxRounds.AddChangeHook(ConVarChanged_MpMaxRounds);
+	_conVar_mpWinLimit.AddChangeHook(ConVarChanged_MpWinLimit);
 
 	// Respawn logic taken from https://github.com/jaredballou/insurgency-sourcemod/blob/master/scripting/disabled/respawn.sp
 	GameData gameData = LoadGameConfigFile("plugin.respawn");
@@ -205,9 +220,11 @@ public Action Command_PrintState(int client, int args)
 	ReplyToCommand(client, "\x05[Tournament Helper] Printing current state.");
 	
 	ReplyToCommand(client, "[Tournament Helper] conVar_insBotQuota_value: %d, conVar_mpIgnoreWinConditions_value: %d, conVar_svVoteIssueChangelevelAllowed_value: %d",
-	_conVar_insBotQuota.IntValue, _conVar_mpIgnoreWinConditions.IntValue, _conVar_svVoteIssueChangelevelAllowed.IntValue);
+		_conVar_insBotQuota.IntValue, _conVar_mpIgnoreWinConditions.IntValue, _conVar_svVoteIssueChangelevelAllowed.IntValue);
 	ReplyToCommand(client, "[Tournament Helper] currentGameState: %d, currentVoteType: %d, playerCount: %d, team1GameWins: %d, team2GameWins: %d, teamGameWinsRequired: %d",
-	_currentGameState, _currentVoteType, _playerCount, _team1GameWins, _team2GameWins, _teamGameWinsRequired);
+		_currentGameState, _currentVoteType, _playerCount, _team1GameWins, _team2GameWins, _teamGameWinsRequired);
+	ReplyToCommand(client, "[Tournament Helper] teamRoundWinsRequired: %d",
+		_teamRoundWinsRequired);
 
 	for (int i = 0; i < _playerCount; i++)
 	{
@@ -334,7 +351,30 @@ public void ConVarChanged_MpIgnoreWinConditions(ConVar convar, char[] oldValue, 
 		return;
 	}
 
+	PrintToConsoleAll("[Tournament Helper] Reverting a server change to mp_ignore_win_conditions, setting to: %s", oldValue);
 	ChangeMpIgnoreWinConditions(StringToInt(oldValue));
+}
+
+public void ConVarChanged_MpMaxRounds(ConVar convar, char[] oldValue, char[] newValue)
+{
+	if (_pluginIsChangingMpMaxRounds)
+	{
+		return;
+	}
+
+	PrintToConsoleAll("[Tournament Helper] Reverting a server change to mp_maxrounds, setting to: %s", oldValue);
+	ChangeMpMaxRounds(StringToInt(oldValue));
+}
+
+public void ConVarChanged_MpWinLimit(ConVar convar, char[] oldValue, char[] newValue)
+{
+	if (_pluginIsChangingMpWinLimit)
+	{
+		return;
+	}
+
+	PrintToConsoleAll("[Tournament Helper] Reverting a server change to mp_winlimit, setting to: %s", oldValue);
+	ChangeMpWinLimit(StringToInt(oldValue));
 }
 
 public void Event_GameEnd(Event event, const char[] name, bool dontBroadcast)
@@ -482,6 +522,24 @@ public void ChangeMpIgnoreWinConditions(int newValue)
 	_pluginIsChangingMpIgnoreWinConditions = true;
 	_conVar_mpIgnoreWinConditions.IntValue = newValue;
 	_pluginIsChangingMpIgnoreWinConditions = false;
+}
+
+public void ChangeMpMaxRounds(int newValue)
+{
+	PrintToServer("[Tournament Helper] Changing mp_maxrounds to '%d'.", newValue);
+
+	_pluginIsChangingMpMaxRounds = true;
+	_conVar_mpMaxRounds.IntValue = newValue;
+	_pluginIsChangingMpMaxRounds = false;
+}
+
+public void ChangeMpWinLimit(int newValue)
+{
+	PrintToServer("[Tournament Helper] Changing mp_winlimit to '%d'.", newValue);
+
+	_pluginIsChangingMpWinLimit = true;
+	_conVar_mpWinLimit.IntValue = newValue;
+	_pluginIsChangingMpWinLimit = false;
 }
 
 public int GetClientFromAuthId(const char[] paramAuthId)
@@ -761,13 +819,60 @@ public void Handle_VoteResults(
 		}
 
 		PrintToChatAll("\x07f5bf03[Tournament Helper] All players are ready.");
-		StartVote(VOTE_TYPE_WINCOUNT, null);
+		StartVote(VOTE_TYPE_GAMEWINCOUNT, null);
 	}
-	else if (_currentVoteType == VOTE_TYPE_WINCOUNT)
+	else if (_currentVoteType == VOTE_TYPE_GAMEWINCOUNT)
 	{
-		int insurgentsVotedItemIndex = GetTeamVoteItemIndex(menu, num_clients, client_info, 3);
-		int securityVotedItemIndex = GetTeamVoteItemIndex(menu, num_clients, client_info, 2);
-		if (insurgentsVotedItemIndex < 0 || securityVotedItemIndex < 0 || insurgentsVotedItemIndex != securityVotedItemIndex)
+		int votedItemIndex = Handle_VoteResults_Helper(menu, num_clients, client_info, VOTE_TYPE_GAMEWINCOUNT);
+		if (votedItemIndex < 0) {
+			return;
+		}
+
+		char item[64];
+		menu.GetItem(votedItemIndex, item, sizeof(item));
+
+		PrintToChatAll("\x07f5bf03[Tournament Helper] Game wins required to win the match: %s", item);
+		_teamGameWinsRequired = StringToInt(item);
+
+		StartVote(VOTE_TYPE_ROUNDWINCOUNT, null);
+	}
+	else if (_currentVoteType == VOTE_TYPE_ROUNDWINCOUNT)
+	{
+		int votedItemIndex = Handle_VoteResults_Helper(menu, num_clients, client_info, VOTE_TYPE_ROUNDWINCOUNT);
+		if (votedItemIndex < 0) {
+			return;
+		}
+
+		char item[64];
+		menu.GetItem(votedItemIndex, item, sizeof(item));
+
+		PrintToChatAll("\x07f5bf03[Tournament Helper] Round wins required to win a game: %s", item);
+		_teamRoundWinsRequired = StringToInt(item);
+
+		SetGameState(GAME_STATE_MATCH_READY);
+	}
+	else
+	{
+		PrintToChatAll("\x07e50000[Tournament Helper] VoteType %d not supported. This should not happen!", _currentVoteType);
+		SetGameState(GAME_STATE_IDLE);
+	}
+}
+
+public int Handle_VoteResults_Helper(
+	Menu menu,
+	int num_clients,
+  const int[][] client_info,
+	int voteType)
+{
+	int insurgentsVotedItemIndex = GetTeamVoteItemIndex(menu, num_clients, client_info, 3);
+	int securityVotedItemIndex = GetTeamVoteItemIndex(menu, num_clients, client_info, 2);
+	if (insurgentsVotedItemIndex < 0 || securityVotedItemIndex < 0 || insurgentsVotedItemIndex != securityVotedItemIndex)
+	{
+		if (insurgentsVotedItemIndex >= 0 && securityVotedItemIndex >= 0)
+		{
+			PrintToChatAll("[Tournament Helper] Teams did not agree on an option.");	
+		}
+		else
 		{
 			if (insurgentsVotedItemIndex < 0)
 			{
@@ -777,30 +882,15 @@ public void Handle_VoteResults(
 			{
 				PrintToChatAll("[Tournament Helper] Security team did not have a majority vote on any option.");	
 			}
-
-			if (insurgentsVotedItemIndex >= 0 && securityVotedItemIndex >= 0)
-			{
-				PrintToChatAll("[Tournament Helper] Teams did not agree on an option.");	
-			}
-
-			PrintToChatAll("\x07f5bf03[Tournament Helper] Revoting on this option.");
-
-			StartVote(VOTE_TYPE_WINCOUNT, null);
-			return;
 		}
 
-		char item[64];
-		menu.GetItem(insurgentsVotedItemIndex, item, sizeof(item));
-		PrintToChatAll("\x07f5bf03[Tournament Helper] Game wins required to win match: %s.", item);
-		_teamGameWinsRequired = StringToInt(item);
+		PrintToChatAll("\x07f5bf03[Tournament Helper] Revoting on this option.");
 
-		SetGameState(GAME_STATE_MATCH_READY);
+		StartVote(voteType, null);
+		return -1;
 	}
-	else
-	{
-		PrintToChatAll("\x07e50000[Tournament Helper] VoteType %d not supported. This should not happen!", _currentVoteType);
-		SetGameState(GAME_STATE_IDLE);
-	}
+
+	return insurgentsVotedItemIndex;
 }
 
 public int GetMenuItemIndex(
@@ -920,9 +1010,13 @@ public int StartVote(int voteType, DataPack inputPack)
 		StartVoteHelper_PopulateReadyMenu(menu, inputPack);
 		SetGameState(GAME_STATE_VOTING);
 	}
-	else if (voteType == VOTE_TYPE_WINCOUNT)
+	else if (voteType == VOTE_TYPE_GAMEWINCOUNT)
 	{
-		StartVoteHelper_PopulateWinCountMenu(menu);
+		StartVoteHelper_PopulateGameWinCountMenu(menu);
+	}
+	else if (voteType == VOTE_TYPE_ROUNDWINCOUNT)
+	{
+		StartVoteHelper_PopulateRoundWinCountMenu(menu);
 	}
 	else
 	{
@@ -938,7 +1032,7 @@ public int StartVote(int voteType, DataPack inputPack)
 	return 0;
 }
 
-public int StartVoteHelper_PopulateWinCountMenu(Menu menu)
+public int StartVoteHelper_PopulateGameWinCountMenu(Menu menu)
 {
 	menu.SetTitle("Select amount of game wins required to win the match.");
 	menu.AddItem("1", "Best 1 out of 1 maps.");
@@ -987,6 +1081,16 @@ public int StartVoteHelper_PopulateMapMenu(Menu menu)
 	}
 
 	return 0;
+}
+
+public int StartVoteHelper_PopulateRoundWinCountMenu(Menu menu)
+{
+	menu.SetTitle("Select amount of round wins required to win a game.");
+	menu.AddItem("2", "Best 2 out of 3 rounds.");
+	menu.AddItem("3", "Best 3 out of 5 rounds.");
+	menu.AddItem("4", "Best 4 out of 7 rounds.");
+	menu.AddItem("5", "Best 5 out of 9 rounds.");
+	menu.AddItem("6", "Best 6 out of 11 rounds.");
 }
 
 public int StartVoteHelper_PopulateReadyMenu(Menu menu, DataPack inputPack)
@@ -1161,9 +1265,10 @@ public void SaveState()
 	char queryString[512];
 	SQL_FormatQuery(
 		_database, queryString, sizeof(queryString),
-		"REPLACE INTO th_state (key, value) VALUES ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d)",
+		"REPLACE INTO th_state (key, value) VALUES ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d)",
 		"conVar_insBotQuota_value", _conVar_insBotQuota.IntValue, "conVar_mpIgnoreWinConditions_value", _conVar_mpIgnoreWinConditions.IntValue, "conVar_svVoteIssueChangelevelAllowed_value", _conVar_svVoteIssueChangelevelAllowed.IntValue,
-		"currentGameState", _currentGameState, "currentVoteType", _currentVoteType, "lastMapChangeTimestamp", _lastMapChangeTimestamp, "matchId", _matchId, "playerCount", _playerCount, "team1GameWins", _team1GameWins, "team2GameWins", _team2GameWins, "teamGameWinsRequired", _teamGameWinsRequired);
+		"currentGameState", _currentGameState, "currentVoteType", _currentVoteType, "lastMapChangeTimestamp", _lastMapChangeTimestamp, "matchId", _matchId, "playerCount", _playerCount, "team1GameWins", _team1GameWins, "team2GameWins", _team2GameWins,
+		"teamGameWinsRequired", _teamGameWinsRequired, "teamRoundWinsRequired", _teamRoundWinsRequired);
 	SQL_TQuery(_database, SqlQueryCallback_Default, queryString);
 
 	SQL_TQuery(_database, SqlQueryCallback_SaveState1, "DELETE FROM th_playerAuthIdInfo");
@@ -1274,6 +1379,12 @@ public void SqlQueryCallback_LoadState1(Handle database, Handle handle, const ch
 		else if (StrEqual(key, "teamGameWinsRequired"))
 		{
 			_teamGameWinsRequired = value;
+		}
+		else if (StrEqual(key, "teamRoundWinsRequired"))
+		{
+			_teamRoundWinsRequired = value;
+			ChangeMpMaxRounds((value * 2) - 1);
+			ChangeMpWinLimit(value);
 		}
 	}
 

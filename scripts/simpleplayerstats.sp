@@ -4,7 +4,7 @@
 #pragma semicolon 1
 #pragma newdecls required
 
-#define PLUGIN_VERSION "1.01"
+#define PLUGIN_VERSION "1.02"
 
 StringMap _authIdDisconnectTimestampMap;
 Database _database;
@@ -709,7 +709,7 @@ public void ResetStartupStats()
 {
 	char queryString[256];
 	SQL_FormatQuery(_database, queryString, sizeof(queryString), "DELETE FROM sps_players WHERE RecordType = 'Startup'");
-	SQL_TQuery(_database, SqlQueryCallback_Command_ResetStatsCustom1, queryString);
+	SQL_TQuery(_database, SqlQueryCallback_ResetStartupStats1, queryString);
 }
 
 public void SqlQueryCallback_Command_AllStats1(Handle database, Handle handle, const char[] sError, int client)
@@ -848,22 +848,6 @@ public void SqlQueryCallback_Command_ResetStatsCustom1(Handle database, Handle h
 	}
 }
 
-public void SqlQueryCallback_Command_ResetStatsStartup1(Handle database, Handle handle, const char[] sError, any nothing)
-{
-	if (!handle)
-	{
-		ThrowError("SQL query error in SqlQueryCallback_Command_ResetStatsStartup1: '%s'", sError);
-	}
-
-	for (int i = 1; i < MaxClients + 1; i++)
-	{
-		if (IsClientConnected(i) && IsClientAuthorized(i) && !IsFakeClient(i))
-		{
-			EnsurePlayerStartupDatabaseRecordExists(i);
-		}
-	}
-}
-
 public void SqlQueryCallback_Default(Handle database, Handle handle, const char[] sError, int data)
 {
 	if (!handle)
@@ -951,6 +935,22 @@ public void SqlQueryCallback_OnMapStart1(Handle database, Handle handle, const c
 
 	CreateAuditLog("Total stats reset.");
 	CreateAuditLog("Custom stats reset.");
+}
+
+public void SqlQueryCallback_ResetStartupStats1(Handle database, Handle handle, const char[] sError, any nothing)
+{
+	if (!handle)
+	{
+		ThrowError("SQL query error in SqlQueryCallback_ResetStartupStats1: '%s'", sError);
+	}
+
+	for (int i = 1; i < MaxClients + 1; i++)
+	{
+		if (IsClientConnected(i) && IsClientAuthorized(i) && !IsFakeClient(i))
+		{
+			EnsurePlayerStartupDatabaseRecordExists(i);
+		}
+	}
 }
 
 public void UpdateClientActiveAndConnectedTimes(int client)

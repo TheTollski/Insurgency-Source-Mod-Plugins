@@ -19,6 +19,11 @@ const int VOTE_TYPE_NONE = 0;
 const int VOTE_TYPE_READY = 1;
 const int VOTE_TYPE_GAMEWINCOUNT = 2;
 const int VOTE_TYPE_ROUNDWINCOUNT = 3;
+const int VOTE_TYPE_GAME1MAPSELECTION = 4;
+const int VOTE_TYPE_GAME1TEAMSELECTION = 5;
+const int VOTE_TYPE_GAME2MAPSELECTION = 6;
+const int VOTE_TYPE_GAME2TEAMSELECTION = 7;
+const int VOTE_TYPE_GAME3MAPSELECTION = 8;
 
 ConVar _conVar_insBotQuota = null;
 ConVar _conVar_mpIgnoreTimerConditions = null;
@@ -33,6 +38,12 @@ int _normalBotQuota = 0;
 int _currentGameState = GAME_STATE_NONE;
 int _currentVoteType = VOTE_TYPE_NONE;
 int _lastMapChangeTimestamp = 0;
+char _game1MapName[PLATFORM_MAX_PATH];
+int _game1TeamATeam = 0;
+char _game2MapName[PLATFORM_MAX_PATH];
+int _game2TeamATeam = 0;
+char _game3MapName[PLATFORM_MAX_PATH];
+int _game3TeamATeam = 0;
 int _matchId = 0;
 char _playerAuthIdInfo[MAXPLAYERS + 1][35];
 int _playerCount = 0;
@@ -42,21 +53,17 @@ bool _pluginIsChangingMpIgnoreTimerConditions = false;
 bool _pluginIsChangingMpIgnoreWinConditions = false;
 bool _pluginIsChangingMpMaxRounds = false;
 bool _pluginIsChangingMpWinLimit = false;
-int _team1GameWins = 0; // This team joined as insurgents.
-int _team2GameWins = 0; // This team joined as security.
-int _team1RoundWins = 0;
-int _team2RoundWins = 0;
+int _teamAGameWins = 0; // This team joined as security.
+int _teamBGameWins = 0; // This team joined as insurgents.
+int _teamARoundWins = 0;
+int _teamBRoundWins = 0;
 int _teamGameWinsRequired = 0;
 int _teamRoundWinsRequired = 0;
 
 // TODO:
+// BUGGGGG: Don't revert win condition during match because demo bug!
 // Automatically change map when match is over, or print hint text.
-// Improve map voting.
-  // For best 2/3 each team selects a map independently and the team they will be on for that map. For 3rd map (or 1/1), teams vote on map together and teams are random?
-	// Temporary: Ability to call vote during vote screen.
 // Allowing late players to join/swapping players in the middle of a match
-// Print winner at end of each game and game wins per team.
-// Teams are forced to not change?
 // Ability to pause the game.
 // Bug: Security left server and then Insurgents had to repick class.
 // Remove bots as players join.
@@ -195,8 +202,9 @@ public void OnConfigsExecuted()
 {
 	_normalBotQuota = _conVar_insBotQuota.IntValue;
 
-	_team1RoundWins = 0; // I thought variables were wiped on map change, why do I need to do this?
-	_team2RoundWins = 0;
+	// I thought variables were wiped on map change, why do I need to do this?
+	_teamARoundWins = 0;
+	_teamBRoundWins = 0;
 
 	LoadState();
 }
@@ -236,8 +244,8 @@ public Action Command_PrintState(int client, int args)
 	
 	ReplyToCommand(client, "[Tournament Helper] conVar_insBotQuota_value: %d, conVar_mpIgnoreTimerConditions_value: %d, conVar_mpIgnoreWinConditions_value: %d, conVar_svVoteIssueChangelevelAllowed_value: %d",
 		_conVar_insBotQuota.IntValue, _conVar_mpIgnoreTimerConditions.IntValue, _conVar_mpIgnoreWinConditions.IntValue, _conVar_svVoteIssueChangelevelAllowed.IntValue);
-	ReplyToCommand(client, "[Tournament Helper] currentGameState: %d, currentVoteType: %d, playerCount: %d, team1GameWins: %d, team2GameWins: %d, teamGameWinsRequired: %d",
-		_currentGameState, _currentVoteType, _playerCount, _team1GameWins, _team2GameWins, _teamGameWinsRequired);
+	ReplyToCommand(client, "[Tournament Helper] currentGameState: %d, currentVoteType: %d, playerCount: %d, teamAGameWins: %d, teamBGameWins: %d, teamGameWinsRequired: %d",
+		_currentGameState, _currentVoteType, _playerCount, _teamAGameWins, _teamBGameWins, _teamGameWinsRequired);
 	ReplyToCommand(client, "[Tournament Helper] teamRoundWinsRequired: %d",
 		_teamRoundWinsRequired);
 
@@ -266,6 +274,15 @@ public Action Command_Jointeam(int client, const char[] command, int args)
 		if (allowedTeam != iTeam)
 		{
 			PrintToChat(client, "\x07e50000[Tournament Helper] You cannot currently join that team, the teams are locked.");
+			
+			if (allowedTeam != GetClientTeam(client))
+			{
+				DataPack pack = new DataPack();
+				pack.WriteCell(client);
+				pack.WriteCell(allowedTeam);
+				CreateTimer(0.25, ChangeClientTeam_AfterDelay, pack);
+			}
+
 			return Plugin_Handled;
 		}
 	}
@@ -415,48 +432,60 @@ public void Event_GameEnd(Event event, const char[] name, bool dontBroadcast)
 		return;
 	}
 
-	int winningTeam = 0;
-	if (winner == 3)
+	char winningTeam;
+	if (winner == GetTeamATeam())
 	{
-		_team1GameWins++;
-		winningTeam = 1;
+		_teamAGameWins++;
+		winningTeam = 'A';
 
 		char queryString[256];
-		SQL_FormatQuery(_database, queryString, sizeof(queryString), "UPDATE th_matches SET team1GameWins = team1GameWins + 1 WHERE id = %d", _matchId);
+		SQL_FormatQuery(_database, queryString, sizeof(queryString), "UPDATE th_matches SET teamAGameWins = teamAGameWins + 1 WHERE id = %d", _matchId);
 		SQL_TQuery(_database, SqlQueryCallback_Default, queryString);
 	}
-	else if (winner == 2)
+	else if (winner == GetTeamBTeam())
 	{
-		_team2GameWins++;
-		winningTeam = 2;
+		_teamBGameWins++;
+		winningTeam = 'B';
 
 		char queryString[256];
-		SQL_FormatQuery(_database, queryString, sizeof(queryString), "UPDATE th_matches SET team2GameWins = team2GameWins + 1 WHERE id = %d", _matchId);
+		SQL_FormatQuery(_database, queryString, sizeof(queryString), "UPDATE th_matches SET teamBGameWins = teamBGameWins + 1 WHERE id = %d", _matchId);
 		SQL_TQuery(_database, SqlQueryCallback_Default, queryString);
 	}
 
-	PrintToChatAll("\x07f5bf03[Tournament Helper] Team %d wins the game! Team 1 game wins: %d, team 2 game wins: %d, game wins required to win the match: %d.",
-		winningTeam, _team1GameWins, _team2GameWins, _teamGameWinsRequired);
+	PrintToChatAll("\x07f5bf03[Tournament Helper] Team %c wins the game! Team A game wins: %d, team B game wins: %d, game wins required to win the match: %d.",
+		winningTeam, _teamAGameWins, _teamBGameWins, _teamGameWinsRequired);
 
-	int matchWinner = -1;
-	if (_team1GameWins == _teamGameWinsRequired)
+	char matchWinner;
+	if (_teamAGameWins == _teamGameWinsRequired)
 	{
-		matchWinner = 1;
-		PrintToChatAll("\x07f5bf03[Tournament Helper] Team 1 wins the match!");
+		matchWinner = 'A';
+		PrintToChatAll("\x07f5bf03[Tournament Helper] Team A wins the match!");
 	}
-	else if (_team2GameWins == _teamGameWinsRequired)
+	else if (_teamBGameWins == _teamGameWinsRequired)
 	{
-		matchWinner = 2;
-		PrintToChatAll("\x07f5bf03[Tournament Helper] Team 2 wins the match!");
+		matchWinner = 'B';
+		PrintToChatAll("\x07f5bf03[Tournament Helper] Team B wins the match!");
 	}
 
-	if (matchWinner > 0)
+	if (matchWinner)
 	{
 		char queryString[256];
-		SQL_FormatQuery(_database, queryString, sizeof(queryString), "UPDATE th_matches SET endTimestamp = %d, matchWinningTeam = %d WHERE id = %d", GetTime(), matchWinner, _matchId);
+		SQL_FormatQuery(_database, queryString, sizeof(queryString), "UPDATE th_matches SET endTimestamp = %d, matchWinningTeam = '%c' WHERE id = %d", GetTime(), matchWinner, _matchId);
 		SQL_TQuery(_database, SqlQueryCallback_Default, queryString);
 
 		SetGameState(GAME_STATE_IDLE);
+	}
+	else
+	{
+		int gameNumber = _teamAGameWins + _teamBGameWins;
+		if (gameNumber == 1)
+		{
+			ChangeMap(_game2MapName);
+		}
+		else
+		{
+			ChangeMap(_game3MapName);
+		}
 	}
 }
 
@@ -521,7 +550,7 @@ public void Event_PlayerTeam(Event event, const char[] name, bool dontBroadcast)
 		DataPack pack = new DataPack();
 		pack.WriteCell(client);
 		pack.WriteCell(allowedTeam);
-		CreateTimer(0.25, PlayerTeamEvent_ChangeClientTeam_AfterDelay, pack);
+		CreateTimer(0.25, ChangeClientTeam_AfterDelay, pack);
 	}
 }
 
@@ -535,20 +564,20 @@ public void Event_RoundEnd(Event event, const char[] name, bool dontBroadcast)
 
 	// PrintToChatAll("round_end. message: %d, messageString: %s, reason: %d, winner: %d", message, messageString, reason, winner);
 	
-	int winningTeam = 0;
-	if (winner == 3)
+	char winningTeam;
+	if (winner == GetTeamATeam())
 	{
-		_team1RoundWins++;
-		winningTeam = 1;
+		_teamARoundWins++;
+		winningTeam = 'A';
 	}
-	else if (winner == 2)
+	else if (winner == GetTeamBTeam())
 	{
-		_team2RoundWins++;
-		winningTeam = 2;
+		_teamBRoundWins++;
+		winningTeam = 'B';
 	}
 
-	PrintToChatAll("\x07f5bf03[Tournament Helper] Team %d wins the round! Team 1 round wins: %d, team 2 round wins: %d, round wins required to win the game: %d.",
-		winningTeam, _team1RoundWins, _team2RoundWins, _teamRoundWinsRequired);
+	PrintToChatAll("\x07f5bf03[Tournament Helper] Team %c wins the round! Team A round wins: %d, team B round wins: %d, round wins required to win the game: %d.",
+		winningTeam, _teamARoundWins, _teamBRoundWins, _teamRoundWinsRequired);
 }
 
 public Action PlayerTeamEvent_SetIsRespawnable_AfterDelay(Handle timer, DataPack inputPack)
@@ -562,7 +591,7 @@ public Action PlayerTeamEvent_SetIsRespawnable_AfterDelay(Handle timer, DataPack
 	return Plugin_Stop;
 }
 
-public Action PlayerTeamEvent_ChangeClientTeam_AfterDelay(Handle timer, DataPack inputPack)
+public Action ChangeClientTeam_AfterDelay(Handle timer, DataPack inputPack)
 {
 	inputPack.Reset();
 	int client = inputPack.ReadCell();
@@ -578,6 +607,36 @@ public Action PlayerTeamEvent_ChangeClientTeam_AfterDelay(Handle timer, DataPack
 //
 // Helper Functions
 //
+
+public void ChangeMap(const char[] mapName)
+{
+	DataPack pack = new DataPack();
+	pack.WriteString(mapName);
+	CreateTimer(5.0, ChangeMap_AfterDelay, pack);
+
+	ShowCountdownTimer(5, "Time remaining until map changes");
+}
+
+public Action ChangeMap_AfterDelay(Handle timer, DataPack inputPack)
+{
+	inputPack.Reset();
+	char mapName[256];
+	inputPack.ReadString(mapName, sizeof(mapName));
+	CloseHandle(inputPack);
+
+	if (StrContains(mapName, "demolition") > -1)
+	{
+		PrintToConsoleAll("[Tournament Helper] Changing map to '%s skirmish'", mapName);
+		ServerCommand("map %s skirmish", mapName);
+	}
+	else
+	{
+		PrintToConsoleAll("[Tournament Helper] Changing map to '%s firefight'", mapName);
+		ServerCommand("map %s firefight", mapName);
+	}
+
+	return Plugin_Stop;
+}
 
 public void ChangeMpIgnoreTimerConditions(int newValue)
 {
@@ -613,6 +672,21 @@ public void ChangeMpWinLimit(int newValue)
 	_pluginIsChangingMpWinLimit = true;
 	_conVar_mpWinLimit.IntValue = newValue;
 	_pluginIsChangingMpWinLimit = false;
+}
+
+public int ConvertTeamNameToInt(const char[] paramAuthId)
+{
+	if (StrEqual(paramAuthId, "security"))
+	{
+		return 2;
+	}
+
+	if (StrEqual(paramAuthId, "insurgents"))
+	{
+		return 3;
+	}
+
+	return -1;
 }
 
 public int GetClientFromAuthId(const char[] paramAuthId)
@@ -664,7 +738,12 @@ public int GetPlayerAllowedTeam(int playerClient)
 	{
 		if (StrEqual(authId, _playerAuthIdInfo[i]))
 		{
-			return _playerTeamInfo[i];
+			if (_playerTeamInfo[i] == 2)
+			{
+				return GetTeamATeam();
+			}
+
+			return GetTeamBTeam();
 		}
 	}
 
@@ -688,6 +767,35 @@ public int GetPlayerCountOnTeam(int team)
 	}
 
 	return count;
+}
+
+public int GetTeamATeam()
+{
+	int gameNumber = _teamAGameWins + _teamBGameWins + 1;
+
+	if (gameNumber == 1)
+	{
+		return _game1TeamATeam;
+	}
+	else if (gameNumber == 2)
+	{
+		return _game2TeamATeam;
+	}
+	else
+	{
+		return _game3TeamATeam;
+	}
+}
+
+public int GetTeamBTeam()
+{
+	int teamATeam = GetTeamATeam();
+	if (teamATeam == 2)
+	{
+		return 3;
+	}
+
+	return 2;
 }
 
 public void SetGameState(int gameState)
@@ -772,14 +880,17 @@ public void SetGameState(int gameState)
 	
 	if (_currentGameState == GAME_STATE_MATCH_READY)
 	{
-		PrintToChatAll("\x07f5bf03[Tournament Helper] Match is ready to start. Call an in-game vote to select the first map.");
+		PrintToChatAll("\x07f5bf03[Tournament Helper] Match is ready to start. Map is changing to %s.", _game1MapName);
 
 		_conVar_insBotQuota.IntValue = 0;
 		_matchId = 0;
 
-		CreateMatchRecord();		
+		CreateMatchRecord();
 
-		ShowHintText("Match is ready to start. Call an in-game vote to select the first map.");
+		ShowHintText("Map is changing.");
+
+		ChangeMap(_game1MapName);
+
 		return;
 	}
 
@@ -791,8 +902,8 @@ public void SetGameState(int gameState)
 		ChangeMpIgnoreWinConditions(0);
 		_conVar_svVoteIssueChangelevelAllowed.IntValue = 0;
 
-		_team1GameWins = 0;
-		_team2GameWins = 0;
+		_teamAGameWins = 0;
+		_teamBGameWins = 0;
 
 		char queryString[256];
 		SQL_FormatQuery(_database, queryString, sizeof(queryString), "UPDATE th_matches SET startTimestamp = %d WHERE id = %d", GetTime(), _matchId);
@@ -951,9 +1062,9 @@ public void Handle_VoteResults(
 	}
 	else if (_currentVoteType == VOTE_TYPE_GAMEWINCOUNT)
 	{
-		int votedItemIndex = Handle_VoteResults_Helper(menu, num_clients, client_info, VOTE_TYPE_GAMEWINCOUNT);
+		int votedItemIndex = Handle_VoteResults_Helper_BothTeams(menu, num_clients, client_info, VOTE_TYPE_GAMEWINCOUNT);
 		if (votedItemIndex < 0) {
-			return; // Handle_VoteResults_Helper handles restarting the vote on this option.
+			return; // Helper function handles restarting the vote on this option.
 		}
 
 		char item[64];
@@ -966,9 +1077,9 @@ public void Handle_VoteResults(
 	}
 	else if (_currentVoteType == VOTE_TYPE_ROUNDWINCOUNT)
 	{
-		int votedItemIndex = Handle_VoteResults_Helper(menu, num_clients, client_info, VOTE_TYPE_ROUNDWINCOUNT);
+		int votedItemIndex = Handle_VoteResults_Helper_BothTeams(menu, num_clients, client_info, VOTE_TYPE_ROUNDWINCOUNT);
 		if (votedItemIndex < 0) {
-			return; // Handle_VoteResults_Helper handles restarting the vote on this option.
+			return; // Helper function handles restarting the vote on this option.
 		}
 
 		char item[64];
@@ -977,6 +1088,107 @@ public void Handle_VoteResults(
 		PrintToChatAll("\x07f5bf03[Tournament Helper] Round wins required to win a game: %s", item);
 		_teamRoundWinsRequired = StringToInt(item);
 
+		StartVote(VOTE_TYPE_GAME1MAPSELECTION, null);
+	}
+	else if (_currentVoteType == VOTE_TYPE_GAME1MAPSELECTION)
+	{
+		int votedItemIndex = -1;
+		if (_teamGameWinsRequired == 1)
+		{
+			votedItemIndex = Handle_VoteResults_Helper_BothTeams(menu, num_clients, client_info, VOTE_TYPE_GAME1MAPSELECTION);
+		}
+		else
+		{
+			votedItemIndex = Handle_VoteResults_Helper_SingleTeam(menu, num_clients, client_info, VOTE_TYPE_GAME1MAPSELECTION, 2);
+		}
+ 
+		if (votedItemIndex < 0) {
+			return; // Helper function handles restarting the vote on this option.
+		}
+
+		char item[64];
+		menu.GetItem(votedItemIndex, item, sizeof(item));
+
+		PrintToChatAll("\x07f5bf03[Tournament Helper] Team A has selected 1st map: %s", item);
+		strcopy(_game1MapName, sizeof(_game1MapName), item);
+
+		if (_teamGameWinsRequired == 1)
+		{
+			_game1TeamATeam = 2;
+			SetGameState(GAME_STATE_MATCH_READY);
+		}
+		else
+		{
+			StartVote(VOTE_TYPE_GAME1TEAMSELECTION, null);
+		}
+	}
+	else if (_currentVoteType == VOTE_TYPE_GAME1TEAMSELECTION)
+	{
+		int votedItemIndex = Handle_VoteResults_Helper_SingleTeam(menu, num_clients, client_info, VOTE_TYPE_GAME1TEAMSELECTION, 2); 
+		if (votedItemIndex < 0) {
+			return; // Helper function handles restarting the vote on this option.
+		}
+
+		char item[64];
+		menu.GetItem(votedItemIndex, item, sizeof(item));
+
+		PrintToChatAll("\x07f5bf03[Tournament Helper] Team A has selected 1st game team: %s", item);
+		_game1TeamATeam = ConvertTeamNameToInt(item);
+
+		StartVote(VOTE_TYPE_GAME2MAPSELECTION, null);
+	}
+	else if (_currentVoteType == VOTE_TYPE_GAME2MAPSELECTION)
+	{
+		int votedItemIndex = Handle_VoteResults_Helper_SingleTeam(menu, num_clients, client_info, VOTE_TYPE_GAME2MAPSELECTION, 3);
+		if (votedItemIndex < 0) {
+			return; // Helper function handles restarting the vote on this option.
+		}
+
+		char item[64];
+		menu.GetItem(votedItemIndex, item, sizeof(item));
+
+		PrintToChatAll("\x07f5bf03[Tournament Helper] Team B has selected 2nd map: %s", item);
+		strcopy(_game2MapName, sizeof(_game2MapName), item);
+
+		StartVote(VOTE_TYPE_GAME2TEAMSELECTION, null);
+	}
+	else if (_currentVoteType == VOTE_TYPE_GAME2TEAMSELECTION)
+	{
+		int votedItemIndex = Handle_VoteResults_Helper_SingleTeam(menu, num_clients, client_info, VOTE_TYPE_GAME2TEAMSELECTION, 3); 
+		if (votedItemIndex < 0) {
+			return; // Helper function handles restarting the vote on this option.
+		}
+
+		char item[64];
+		menu.GetItem(votedItemIndex, item, sizeof(item));
+
+		PrintToChatAll("\x07f5bf03[Tournament Helper] Team B has selected 2nd game team: %s", item);
+		int game2TeamBTeam = ConvertTeamNameToInt(item);
+		if (game2TeamBTeam == 2)
+		{
+			_game2TeamATeam = 3;
+		}
+		else
+		{
+			_game2TeamATeam = 2;
+		}
+
+		StartVote(VOTE_TYPE_GAME3MAPSELECTION, null);
+	}
+	else if (_currentVoteType == VOTE_TYPE_GAME3MAPSELECTION)
+	{
+		int votedItemIndex = Handle_VoteResults_Helper_BothTeams(menu, num_clients, client_info, VOTE_TYPE_GAME3MAPSELECTION);
+		if (votedItemIndex < 0) {
+			return; // Helper function handles restarting the vote on this option.
+		}
+
+		char item[64];
+		menu.GetItem(votedItemIndex, item, sizeof(item));
+
+		PrintToChatAll("\x07f5bf03[Tournament Helper] 3rd map: %s", item);
+		strcopy(_game3MapName, sizeof(_game3MapName), item);
+
+		_game3TeamATeam = 2;
 		SetGameState(GAME_STATE_MATCH_READY);
 	}
 	else
@@ -986,7 +1198,7 @@ public void Handle_VoteResults(
 	}
 }
 
-public int Handle_VoteResults_Helper(
+public int Handle_VoteResults_Helper_BothTeams(
 	Menu menu,
 	int num_clients,
   const int[][] client_info,
@@ -1019,6 +1231,27 @@ public int Handle_VoteResults_Helper(
 	}
 
 	return insurgentsVotedItemIndex;
+}
+
+public int Handle_VoteResults_Helper_SingleTeam(
+	Menu menu,
+	int num_clients,
+  const int[][] client_info,
+	int voteType,
+	int votingTeam)
+{
+	int votedItemIndex = GetTeamVoteItemIndex(menu, num_clients, client_info, votingTeam);
+	if (votedItemIndex < 0)
+	{
+		PrintToChatAll("[Tournament Helper] Voting team did not have a majority vote on any option.");	
+
+		PrintToChatAll("\x07f5bf03[Tournament Helper] Revoting on this option.");
+
+		StartVote(voteType, null);
+		return -1;
+	}
+
+	return votedItemIndex;
 }
 
 public int GetMenuItemIndex(
@@ -1133,6 +1366,7 @@ public int StartVote(int voteType, DataPack inputPack)
 	menu.ExitButton = false;
 	menu.VoteResultCallback = Handle_VoteResults;
 
+	int teamToVote = 0;
 	if (voteType == VOTE_TYPE_READY)
 	{
 		StartVoteHelper_PopulateReadyMenu(menu, inputPack);
@@ -1146,6 +1380,34 @@ public int StartVote(int voteType, DataPack inputPack)
 	{
 		StartVoteHelper_PopulateRoundWinCountMenu(menu);
 	}
+	else if (voteType == VOTE_TYPE_GAME1MAPSELECTION)
+	{
+		StartVoteHelper_PopulateMapMenu(menu, "1st");
+
+		if (_teamGameWinsRequired > 1)
+		{
+			teamToVote = 2;
+		}
+	}
+	else if (voteType == VOTE_TYPE_GAME1TEAMSELECTION)
+	{
+		StartVoteHelper_PopulateTeamSelectionMenu(menu);
+		teamToVote = 2;
+	}
+	else if (voteType == VOTE_TYPE_GAME2MAPSELECTION)
+	{
+		StartVoteHelper_PopulateMapMenu(menu, "2nd");
+		teamToVote = 3;
+	}
+	else if (voteType == VOTE_TYPE_GAME2TEAMSELECTION)
+	{
+		StartVoteHelper_PopulateTeamSelectionMenu(menu);
+		teamToVote = 3;
+	}
+	else if (voteType == VOTE_TYPE_GAME3MAPSELECTION)
+	{
+		StartVoteHelper_PopulateMapMenu(menu, "3rd");
+	}
 	else
 	{
 		PrintToChatAll("\x07e50000[Tournament Helper] Unsupported vote type '%d'.", voteType);
@@ -1154,8 +1416,26 @@ public int StartVote(int voteType, DataPack inputPack)
 	
 	_currentVoteType = voteType;
 
-	ShowCountdownTimer(30);
-	menu.DisplayVoteToAll(30);
+	ShowCountdownTimer(30, "Time remaining for current vote");
+
+	if (teamToVote == 0)
+	{
+		menu.DisplayVoteToAll(30);	
+	}
+	else
+	{
+		int[] clients = new int[MaxClients];
+		int clientCount = 0;
+		for(int i = 1; i < MaxClients + 1; i++)
+		{
+			if (IsClientInGame(i) && !IsFakeClient(i) && GetClientTeam(i) == teamToVote)
+			{
+				clients[clientCount++] = i;
+			}
+		}
+
+		menu.DisplayVote(clients, clientCount, 30);
+	}
 
 	return 0;
 }
@@ -1170,7 +1450,7 @@ public int StartVoteHelper_PopulateGameWinCountMenu(Menu menu)
 Handle _mapArray = null;
 int mapSerial = -1;
 
-public int StartVoteHelper_PopulateMapMenu(Menu menu)
+public int StartVoteHelper_PopulateMapMenu(Menu menu, const char[] ordinalNumber)
 {
 	// This will populate the menu with all the maps in the map cycle, but it has no data on gamemodes.
 	// Until voting on game modes is figured out, it's probably best to just leverage the in-game map voting.
@@ -1192,9 +1472,10 @@ public int StartVoteHelper_PopulateMapMenu(Menu menu)
 		return 1;
 	}
 
-	menu.SetTitle("Select a map.");
+	menu.SetTitle("Select the %s map.", ordinalNumber);
 	
 	int mapCount = GetArraySize(_mapArray);
+	char lastMapName[PLATFORM_MAX_PATH];
 	for (int i = 0; i < mapCount; i++)
 	{
 		char mapName[PLATFORM_MAX_PATH];
@@ -1203,22 +1484,15 @@ public int StartVoteHelper_PopulateMapMenu(Menu menu)
 		char mapDisplayName[PLATFORM_MAX_PATH];
 		GetMapDisplayName(mapName, mapDisplayName, sizeof(mapDisplayName));
 
-		PrintToChatAll("(%d) '%s': '%s'", i, mapName, mapDisplayName);
+		if (i == 0 || !StrEqual(mapName, lastMapName))
+		{
+			menu.AddItem(mapName, mapDisplayName);
+		}
 
-		menu.AddItem(mapName, mapDisplayName);
+		GetArrayString(_mapArray, i, lastMapName, sizeof(lastMapName));
 	}
 
 	return 0;
-}
-
-public int StartVoteHelper_PopulateRoundWinCountMenu(Menu menu)
-{
-	menu.SetTitle("Select amount of round wins required to win a game.");
-	menu.AddItem("2", "Best 2 out of 3 rounds.");
-	menu.AddItem("3", "Best 3 out of 5 rounds.");
-	menu.AddItem("4", "Best 4 out of 7 rounds.");
-	menu.AddItem("5", "Best 5 out of 9 rounds.");
-	menu.AddItem("6", "Best 6 out of 11 rounds.");
 }
 
 public int StartVoteHelper_PopulateReadyMenu(Menu menu, DataPack inputPack)
@@ -1233,6 +1507,23 @@ public int StartVoteHelper_PopulateReadyMenu(Menu menu, DataPack inputPack)
 	menu.SetTitle("'%s' has initiated a vote to start the match. Is your team ready?", requestorName);
 	menu.AddItem("yes", "Yes");
 	menu.AddItem("no", "No");
+}
+
+public int StartVoteHelper_PopulateRoundWinCountMenu(Menu menu)
+{
+	menu.SetTitle("Select amount of round wins required to win a game.");
+	menu.AddItem("2", "Best 2 out of 3 rounds.");
+	menu.AddItem("3", "Best 3 out of 5 rounds.");
+	menu.AddItem("4", "Best 4 out of 7 rounds.");
+	menu.AddItem("5", "Best 5 out of 9 rounds.");
+	menu.AddItem("6", "Best 6 out of 11 rounds.");
+}
+
+public int StartVoteHelper_PopulateTeamSelectionMenu(Menu menu)
+{
+	menu.SetTitle("Select the team you want to play as for your selected map.");
+	menu.AddItem("security", "Security");
+	menu.AddItem("insurgents", "Insurgents");
 }
 
 // Countdown Timer Functions
@@ -1251,7 +1542,7 @@ public void ClearCountdownTimer()
 	PrintCenterTextAll("");
 }
 
-public void ShowCountdownTimer(int seconds)
+public void ShowCountdownTimer(int seconds, const char[] message)
 {
 	if (_countdownTimeRemainingHandle != null)
 	{
@@ -1259,7 +1550,7 @@ public void ShowCountdownTimer(int seconds)
 		_countdownTimeRemainingHandle = null;
 	}
 
-	PrintCenterTextAll("Time remaining for current vote: %ds", seconds);
+	PrintCenterTextAll("%s: %ds", message, seconds);
 
 	_countdownTimeRemaining = seconds - 1;
 	_countdownTimeRemainingHandle = CreateTimer(1.0, ShowCountdownTimer_AfterDelay, _, TIMER_REPEAT);
@@ -1291,11 +1582,11 @@ public void ConnectToDatabase()
 		return;
 	}
 
-	SQL_TQuery(_database, SqlQueryCallback_Default, "CREATE TABLE IF NOT EXISTS th_state (key VARCHAR(64) PRIMARY KEY, value INT(11) NOT NULL)");
+	SQL_TQuery(_database, SqlQueryCallback_Default, "CREATE TABLE IF NOT EXISTS th_state (key VARCHAR(64) PRIMARY KEY, valueInt INT(11), valueString VARCHAR(256))");
 	SQL_TQuery(_database, SqlQueryCallback_Default, "CREATE TABLE IF NOT EXISTS th_playerAuthIdInfo (i INT(3) PRIMARY KEY, value VARCHAR(35) NOT NULL)");
 	SQL_TQuery(_database, SqlQueryCallback_Default, "CREATE TABLE IF NOT EXISTS th_playerTeamInfo (i INT(3) PRIMARY KEY, value INT(2) NOT NULL)");
 
-	SQL_TQuery(_database, SqlQueryCallback_Default, "CREATE TABLE IF NOT EXISTS th_matches (id INTEGER PRIMARY KEY AUTOINCREMENT, readyTimestamp INT(11) NOT NULL, startTimestamp INT(11) NULL, endTimestamp INT(11) NULL, team1GameWins INT(3) NOT NULL, team2GameWins INT(3) NOT NULL, matchWinningTeam INT(3) NOT NULL)");
+	SQL_TQuery(_database, SqlQueryCallback_Default, "CREATE TABLE IF NOT EXISTS th_matches (id INTEGER PRIMARY KEY AUTOINCREMENT, readyTimestamp INT(11) NOT NULL, startTimestamp INT(11) NULL, endTimestamp INT(11) NULL, teamAGameWins INT(3) NOT NULL, teamBGameWins INT(3) NOT NULL, matchWinningTeam VARCHAR(1) NOT NULL)");
 	SQL_TQuery(_database, SqlQueryCallback_Default, "CREATE TABLE IF NOT EXISTS th_players (authId VARCHAR(35), matchId INT(8) NOT NULL, team INT(3) NOT NULL, name VARCHAR(128) NOT NULL, UNIQUE(authId, matchId))");
 }
 
@@ -1319,9 +1610,10 @@ public void SqlQueryCallback_Command_MatchHistory1(Handle database, Handle handl
 		int readyTimestamp = SQL_FetchInt(handle, 1);
 		int startTimestamp = SQL_FetchInt(handle, 2);
 		int endTimestamp = SQL_FetchInt(handle, 3);
-		int team1GameWins = SQL_FetchInt(handle, 4);
-		int team2GameWins = SQL_FetchInt(handle, 5);
-		int matchWinningTeam = SQL_FetchInt(handle, 6);
+		int teamAGameWins = SQL_FetchInt(handle, 4);
+		int teamBGameWins = SQL_FetchInt(handle, 5);
+		char matchWinningTeam[1];
+		SQL_FetchString(handle, 6, matchWinningTeam, sizeof(matchWinningTeam));
 
 		char readyDateTime[32]; 
 		FormatTime(readyDateTime, sizeof(readyDateTime), "%F %R", readyTimestamp);
@@ -1330,7 +1622,7 @@ public void SqlQueryCallback_Command_MatchHistory1(Handle database, Handle handl
 		char endDateTime[32]; 
 		FormatTime(endDateTime, sizeof(endDateTime), "%F %R", endTimestamp);
 
-		ReplyToCommand(client, "%7d | %16s | %16s | %16s | %d-%d      | Team %d     ", id, readyDateTime, startDateTime, endDateTime, team1GameWins, team2GameWins, matchWinningTeam);
+		ReplyToCommand(client, "%7d | %16s | %16s | %16s | %d-%d      | Team %s     ", id, readyDateTime, startDateTime, endDateTime, teamAGameWins, teamBGameWins, matchWinningTeam);
 	}
 }
 
@@ -1338,8 +1630,8 @@ public void CreateMatchRecord()
 {
 	char queryString[256];
 	SQL_FormatQuery(_database, queryString, sizeof(queryString),
-		"INSERT INTO th_matches (readyTimestamp, team1GameWins, team2GameWins, matchWinningTeam) VALUES (%d, %d, %d, %d)",
-		 GetTime(), 0, 0, 0);
+		"INSERT INTO th_matches (readyTimestamp, teamAGameWins, teamBGameWins, matchWinningTeam) VALUES (%d, %d, %d, '%c')",
+		 GetTime(), 0, 0, '-');
 	SQL_TQuery(_database, SqlQueryCallback_CreateMatchRecord1, queryString);
 }
 
@@ -1390,14 +1682,36 @@ public void SaveState()
 {
 	PrintToServer("[Tournament Helper] Saving state...");
 
-	char queryString[512];
+	char queryString1[1028];
 	SQL_FormatQuery(
-		_database, queryString, sizeof(queryString),
-		"REPLACE INTO th_state (key, value) VALUES ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d)",
-		"conVar_insBotQuota_value", _conVar_insBotQuota.IntValue, "conVar_mpIgnoreTimerConditions_value", _conVar_mpIgnoreTimerConditions.IntValue, "conVar_mpIgnoreWinConditions_value", _conVar_mpIgnoreWinConditions.IntValue, "conVar_svVoteIssueChangelevelAllowed_value", _conVar_svVoteIssueChangelevelAllowed.IntValue,
-		"currentGameState", _currentGameState, "currentVoteType", _currentVoteType, "lastMapChangeTimestamp", _lastMapChangeTimestamp, "matchId", _matchId, "playerCount", _playerCount, "team1GameWins", _team1GameWins, "team2GameWins", _team2GameWins,
-		"teamGameWinsRequired", _teamGameWinsRequired, "teamRoundWinsRequired", _teamRoundWinsRequired);
-	SQL_TQuery(_database, SqlQueryCallback_Default, queryString);
+		_database, queryString1, sizeof(queryString1),
+		"REPLACE INTO th_state (key, valueInt) VALUES ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d), ('%s', %d)",
+		"conVar_insBotQuota_value", _conVar_insBotQuota.IntValue,
+		"conVar_mpIgnoreTimerConditions_value", _conVar_mpIgnoreTimerConditions.IntValue,
+		"conVar_mpIgnoreWinConditions_value", _conVar_mpIgnoreWinConditions.IntValue,
+		"conVar_svVoteIssueChangelevelAllowed_value", _conVar_svVoteIssueChangelevelAllowed.IntValue,
+		"currentGameState", _currentGameState,
+		"currentVoteType", _currentVoteType,
+		"game1TeamATeam", _game1TeamATeam,
+		"game2TeamATeam", _game2TeamATeam,
+		"game3TeamATeam", _game3TeamATeam,
+		"lastMapChangeTimestamp", _lastMapChangeTimestamp,
+		"matchId", _matchId,
+		"playerCount", _playerCount,
+		"teamAGameWins", _teamAGameWins,
+		"teamBGameWins", _teamBGameWins,
+		"teamGameWinsRequired", _teamGameWinsRequired,
+		"teamRoundWinsRequired", _teamRoundWinsRequired);
+	SQL_TQuery(_database, SqlQueryCallback_Default, queryString1);
+
+	char queryString2[512];
+	SQL_FormatQuery(
+		_database, queryString2, sizeof(queryString2),
+		"REPLACE INTO th_state (key, valueString) VALUES ('%s', '%s'), ('%s', '%s'), ('%s', '%s')",
+		"game1MapName", _game1MapName,
+		"game2MapName", _game2MapName,
+		"game3MapName", _game3MapName);
+	SQL_TQuery(_database, SqlQueryCallback_Default, queryString2);
 
 	SQL_TQuery(_database, SqlQueryCallback_SaveState1, "DELETE FROM th_playerAuthIdInfo");
 	SQL_TQuery(_database, SqlQueryCallback_SaveState2, "DELETE FROM th_playerTeamInfo");
@@ -1462,61 +1776,89 @@ public void SqlQueryCallback_LoadState1(Handle database, Handle handle, const ch
 	{
 		char key[64];
 		SQL_FetchString(handle, 0, key, sizeof(key));
-		int value = SQL_FetchInt(handle, 1);
+
+		int valueInt = SQL_FetchInt(handle, 1);
+
+		char valueString[256];
+		SQL_FetchString(handle, 2, valueString, sizeof(valueString));
 
 		if (StrEqual(key, "conVar_insBotQuota_value"))
 		{
-			_conVar_insBotQuota.IntValue = value;
+			_conVar_insBotQuota.IntValue = valueInt;
 		}
 		else if (StrEqual(key, "conVar_mpIgnoreTimerConditions_value"))
 		{
-			ChangeMpIgnoreTimerConditions(value);
+			ChangeMpIgnoreTimerConditions(valueInt);
 		}
 		else if (StrEqual(key, "conVar_mpIgnoreWinConditions_value"))
 		{
-			ChangeMpIgnoreWinConditions(value);
+			ChangeMpIgnoreWinConditions(valueInt);
 		}
 		else if (StrEqual(key, "conVar_svVoteIssueChangelevelAllowed_value"))
 		{
-			_conVar_svVoteIssueChangelevelAllowed.IntValue = value;
+			_conVar_svVoteIssueChangelevelAllowed.IntValue = valueInt;
 		}
 		else if (StrEqual(key, "currentGameState"))
 		{
-			currentGameState = value;
+			currentGameState = valueInt;
 		}
 		else if (StrEqual(key, "currentVoteType"))
 		{
-			_currentVoteType = value;
+			_currentVoteType = valueInt;
+		}
+		else if (StrEqual(key, "game1MapName"))
+		{
+			strcopy(_game1MapName, sizeof(_game1MapName), valueString);
+		}
+		else if (StrEqual(key, "game1TeamATeam"))
+		{
+			_game1TeamATeam = valueInt;
+		}
+		else if (StrEqual(key, "game2MapName"))
+		{
+			strcopy(_game2MapName, sizeof(_game2MapName), valueString);
+		}
+		else if (StrEqual(key, "game2TeamATeam"))
+		{
+			_game2TeamATeam = valueInt;
+		}
+		else if (StrEqual(key, "game3MapName"))
+		{
+			strcopy(_game3MapName, sizeof(_game3MapName), valueString);
+		}
+		else if (StrEqual(key, "game3TeamATeam"))
+		{
+			_game3TeamATeam = valueInt;
 		}
 		else if (StrEqual(key, "_lastMapChangeTimestamp"))
 		{
-			_lastMapChangeTimestamp = value;
+			_lastMapChangeTimestamp = valueInt;
 		}
 		else if (StrEqual(key, "matchId"))
 		{
-			_matchId = value;
+			_matchId = valueInt;
 		}
 		else if (StrEqual(key, "playerCount"))
 		{
-			_playerCount = value;
+			_playerCount = valueInt;
 		}
-		else if (StrEqual(key, "team1GameWins"))
+		else if (StrEqual(key, "teamAGameWins"))
 		{
-			_team1GameWins = value;
+			_teamAGameWins = valueInt;
 		}
-		else if (StrEqual(key, "team2GameWins"))
+		else if (StrEqual(key, "teamBGameWins"))
 		{
-			_team2GameWins = value;
+			_teamBGameWins = valueInt;
 		}
 		else if (StrEqual(key, "teamGameWinsRequired"))
 		{
-			_teamGameWinsRequired = value;
+			_teamGameWinsRequired = valueInt;
 		}
 		else if (StrEqual(key, "teamRoundWinsRequired"))
 		{
-			_teamRoundWinsRequired = value;
-			ChangeMpMaxRounds((value * 2) - 1);
-			ChangeMpWinLimit(value);
+			_teamRoundWinsRequired = valueInt;
+			ChangeMpMaxRounds((valueInt * 2) - 1);
+			ChangeMpWinLimit(valueInt);
 		}
 	}
 

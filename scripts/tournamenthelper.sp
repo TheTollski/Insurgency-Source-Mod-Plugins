@@ -59,7 +59,6 @@ int _teamGameWinsRequired = 0;
 int _teamRoundWinsRequired = 0;
 
 // TODO:
-// Bug: Spectators getting forced to team and can't rejoin match.
 // Should players on no team allow ready vote to be called?
 // Automatically change map when match is over, or print hint text.
 // Allowing late players to join/swapping players in the middle of a match
@@ -70,7 +69,7 @@ int _teamRoundWinsRequired = 0;
 // simpleplayerstats should only capture stats during matches
 // capture very basic stats to save to match history
 // don't cancel vote if nobody votes (time limit + cancelvote command?)
-// spectators are causing votes to take full 30 seconds
+// Any player voting not ready should cancel ready vote.
 
 public Plugin myinfo =
 {
@@ -142,39 +141,35 @@ public void OnPluginStart()
 	ConnectToDatabase();
 }
 
-public bool OnClientConnect(int client, char[] rejectmsg, int maxlen)
+public void OnClientAuthorized(int client, const char[] authId)
 {
 	if (_currentGameState == GAME_STATE_NONE || _currentGameState == GAME_STATE_IDLE)
 	{
-		return true;
+		return;
 	}
 
 	int otherConnectedPlayersCount = GetOtherConnectedPlayersCount(client);
 	if (otherConnectedPlayersCount == 0) 
 	{
-		return true;
+		return;
 	}
 
-	char authId[35];
-	GetClientAuthId(client, AuthId_Steam2, authId, sizeof(authId));
 	for (int i = 0; i < _playerCount; i++)
 	{
 		if (StrEqual(authId, _playerAuthIdInfo[i]))
 		{
-			return true;
+			return;
 		}
 	}
 
 	if (_currentGameState == GAME_STATE_VOTING)
 	{
-		strcopy(rejectmsg, maxlen, "Voting is in progress for a private match.");
+		KickClient(client, "Voting is in progress for a private match");
 	}
 	else
 	{
-		strcopy(rejectmsg, maxlen, "A private match is in progress.");
+		KickClient(client, "A private match is in progress");
 	}
-	
-	return false;
 }
 
 public void OnClientPostAdminCheck(int client)
@@ -699,6 +694,11 @@ public int GetPlayerAllowedTeam(int playerClient)
 	{
 		if (StrEqual(authId, _playerAuthIdInfo[i]))
 		{
+			if (_playerTeamInfo[i] < 2)
+			{
+				return _playerTeamInfo[i];
+			}
+			
 			if (_playerTeamInfo[i] == 2)
 			{
 				return GetTeamATeam();
@@ -1327,7 +1327,7 @@ public int StartVote(int voteType, DataPack inputPack)
 	menu.ExitButton = false;
 	menu.VoteResultCallback = Handle_VoteResults;
 
-	int teamToVote = 0;
+	int teamToVote = -1;
 	if (voteType == VOTE_TYPE_READY)
 	{
 		StartVoteHelper_PopulateReadyMenu(menu, inputPack);
@@ -1379,24 +1379,20 @@ public int StartVote(int voteType, DataPack inputPack)
 
 	ShowCountdownTimer(30, "Time remaining for current vote");
 
-	if (teamToVote == 0)
+	int[] clients = new int[MaxClients];
+	int clientCount = 0;
+	for(int i = 1; i < MaxClients + 1; i++)
 	{
-		menu.DisplayVoteToAll(30);	
-	}
-	else
-	{
-		int[] clients = new int[MaxClients];
-		int clientCount = 0;
-		for(int i = 1; i < MaxClients + 1; i++)
+		if (IsClientInGame(i) && !IsFakeClient(i))
 		{
-			if (IsClientInGame(i) && !IsFakeClient(i) && GetClientTeam(i) == teamToVote)
-			{
-				clients[clientCount++] = i;
-			}
+			int team = GetClientTeam(i);
+			if (team == teamToVote ||
+					(teamToVote == -1 && (team == 2 || team == 3)))
+			clients[clientCount++] = i;
 		}
-
-		menu.DisplayVote(clients, clientCount, 30);
 	}
+
+	menu.DisplayVote(clients, clientCount, 30);
 
 	return 0;
 }

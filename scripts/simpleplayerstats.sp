@@ -40,6 +40,8 @@ public void OnPluginStart()
 	HookEvent("player_team", Event_PlayerTeam);
 
 	RegAdminCmd("sm_allstats", Command_AllStats, ADMFLAG_GENERIC, "Prints all player stats.");
+	RegAdminCmd("sm_reset_stats_custom", Command_ResetStatsCustom, ADMFLAG_GENERIC, "Resets stats of all players for the custom time range.");
+
 	RegConsoleCmd("sm_mystats", Command_MyStats, "Prints your stats.");
 
 	ConnectToDatabase();
@@ -79,15 +81,22 @@ public void OnClientPostAdminCheck(int client)
 	char authId[35];
 	GetClientAuthId(client, AuthId_Steam2, authId, sizeof(authId));
 
-	char queryString[256];
-	SQL_FormatQuery(_database, queryString, sizeof(queryString), "SELECT * FROM sps_players WHERE AuthId = '%s'", authId);
-	SQL_TQuery(_database, SqlQueryCallback_OnClientPostAdminCheck1, queryString, GetClientUserId(client));
+	int timestamp = GetTime();
+	int disconnectTimestamp;
+	if (_authIdDisconnectTimestampMap.GetValue(authId, disconnectTimestamp) && timestamp - disconnectTimestamp < 300)
+	{
+		return;
+	}
+
+	EnsurePlayerCustomDatabaseRecordExists(client);
+	EnsurePlayerTotalDatabaseRecordExists(client);
 }
 
 public Action Command_AllStats(int client, int args)
 {
-	if (args > 2) {
-		ReplyToCommand(client, "[Simple Player Stats] Usage: sm_allstats [SortColumn('ActiveTime'|'DeathsToEnemyPlayers'|'EnemyPlayerKills'|'LastConnectionTimestamp')] [Page]");
+	if (args > 3)
+	{
+		ReplyToCommand(client, "[Simple Player Stats] Usage: sm_allstats [Type('Total'|'Custom)] [SortColumn('ActiveTime'|'DeathsToEnemyPlayers'|'EnemyPlayerKills'|'LastConnectionTimestamp')] [Page]");
 		return Plugin_Handled;
 	}
 
@@ -98,7 +107,7 @@ public Action Command_AllStats(int client, int args)
 	}
 	else
 	{
-		arg1 = "ActiveTime";
+		arg1 = "Total";
 	}
 
 	char arg2[32];
@@ -108,64 +117,133 @@ public Action Command_AllStats(int client, int args)
 	}
 	else
 	{
-		arg2 = "1";
+		arg2 = "ActiveTime";
+	}
+
+	char arg3[32];
+	if (args >= 3)
+	{
+		GetCmdArg(3, arg3, sizeof(arg3));
+	}
+	else
+	{
+		arg3 = "1";
 	}
 
 	if (args == 0)
 	{
-		ReplyToCommand(client, "[Simple Player Stats] Using defaults: sm_allstats ActiveTime 1");
+		ReplyToCommand(client, "[Simple Player Stats] Using defaults: sm_allstats Total ActiveTime 1");
+	}
+
+	char recordType[32];
+	if (StrEqual(arg1, "Custom", false))
+	{
+		recordType = "Custom";
+	}
+	else if (StrEqual(arg1, "Total", false))
+	{
+		recordType = "Total";
+	}
+	else
+	{
+		ReplyToCommand(client, "[Simple Player Stats] Invalid type '%s'.", arg1);
+		return Plugin_Handled;
 	}
 
 	char orderByColumn[32];
-	if (StrEqual(arg1, "ActiveTime", false))
+	if (StrEqual(arg2, "ActiveTime", false))
 	{
 		orderByColumn = "ActiveTime";
 	}
-	else if (StrEqual(arg1, "DeathsToEnemyPlayers", false))
+	else if (StrEqual(arg2, "DeathsToEnemyPlayers", false))
 	{
 		orderByColumn = "DeathsToEnemyPlayers";
 	}
-	else if (StrEqual(arg1, "EnemyPlayerKills", false))
+	else if (StrEqual(arg2, "EnemyPlayerKills", false))
 	{
 		orderByColumn = "EnemyPlayerKills";
 	}
-	else if (StrEqual(arg1, "LastConnectionTimestamp", false))
+	else if (StrEqual(arg2, "LastConnectionTimestamp", false))
 	{
 		orderByColumn = "LastConnectionTimestamp";
 	}
 	else
 	{
-		ReplyToCommand(client, "[Simple Player Stats] Invalid sort column '%s'.", arg1);
+		ReplyToCommand(client, "[Simple Player Stats] Invalid sort column '%s'.", arg2);
 		return Plugin_Handled;
 	}
 
 	int pageSize = 50;
-	int page = StringToInt(arg2);
+	int page = StringToInt(arg3);
 	int offset = (page - 1) * pageSize;
 
-	ReplyToCommand(client, "[Simple Player Stats] Stats are being printed in the console.");
+	ReplyToCommand(client, "[Simple Player Stats] %s Stats are being printed in the console.", recordType);
 
 	char queryString[256];
-	SQL_FormatQuery(_database, queryString, sizeof(queryString), "SELECT * FROM sps_players ORDER BY %s DESC LIMIT %d OFFSET %d", orderByColumn, pageSize, offset);
+	SQL_FormatQuery(
+		_database, queryString, sizeof(queryString),
+		"SELECT * FROM sps_players WHERE RecordType = '%s' ORDER BY %s DESC LIMIT %d OFFSET %d",
+		recordType, orderByColumn, pageSize, offset);
 	SQL_TQuery(_database, SqlQueryCallback_Command_AllStats1, queryString, GetClientUserId(client));
 	return Plugin_Handled;
 }
 
 public Action Command_MyStats(int client, int args)
 {
-	if (args != 0) {
-		ReplyToCommand(client, "[Simple Player Stats] Usage: sm_mystats");
+	if (args > 1) {
+		ReplyToCommand(client, "[Simple Player Stats] Usage: sm_mystats [Type('Total'|'Custom)]");
+		return Plugin_Handled;
+	}
+
+	char arg1[32];
+	if (args >= 1)
+	{
+		GetCmdArg(1, arg1, sizeof(arg1));
+	}
+	else
+	{
+		arg1 = "Total";
+	}
+
+	char recordType[32];
+	if (StrEqual(arg1, "Custom", false))
+	{
+		recordType = "Custom";
+	}
+	else if (StrEqual(arg1, "Total", false))
+	{
+		recordType = "Total";
+	}
+	else
+	{
+		ReplyToCommand(client, "[Simple Player Stats] Invalid type '%s'.", arg1);
 		return Plugin_Handled;
 	}
 
 	char authId[35];
 	GetClientAuthId(client, AuthId_Steam2, authId, sizeof(authId));
 
-	ReplyToCommand(client, "[Simple Player Stats] Your stats are being printed in the console.");
+	ReplyToCommand(client, "[Simple Player Stats] Your %s stats are being printed in the console.", recordType);
 
 	char queryString[256];
-	SQL_FormatQuery(_database, queryString, sizeof(queryString), "SELECT * FROM sps_players WHERE AuthId = '%s'", authId);
+	SQL_FormatQuery(_database, queryString, sizeof(queryString), "SELECT * FROM sps_players WHERE AuthId = '%s' AND RecordType = '%s'", authId, recordType);
 	SQL_TQuery(_database, SqlQueryCallback_Command_MyStats1, queryString, GetClientUserId(client));
+	return Plugin_Handled;
+}
+
+public Action Command_ResetStatsCustom(int client, int args)
+{
+	if (args != 0)
+	{
+		ReplyToCommand(client, "[Simple Player Stats] Usage: sm_reset_stats_custom");
+		return Plugin_Handled;
+	}
+
+	ReplyToCommand(client, "[Simple Player Stats] Resetting stats of all players for the custom time range.");
+
+	char queryString[256];
+	SQL_FormatQuery(_database, queryString, sizeof(queryString), "DELETE FROM sps_players WHERE RecordType = 'Custom'");
+	SQL_TQuery(_database, SqlQueryCallback_Command_ResetStatsCustom1, queryString);
 	return Plugin_Handled;
 }
 
@@ -513,7 +591,35 @@ public void ConnectToDatabase()
 	SQL_TQuery(
 		_database,
 		SqlQueryCallback_Default,
-		"CREATE TABLE IF NOT EXISTS sps_players (AuthId VARCHAR(35) NOT NULL, PlayerName VARCHAR(64) NOT NULL, FirstConnectionTimestamp INT(11) NOT NULL, LastConnectionTimestamp INT(11) NOT NULL, ConnectionCount INT(7) NOT NULL, ConnectedTime INT(9) NOT NULL, ActiveTime INT(9) NOT NULL, EnemyBotKills INT(8) NOT NULL, EnemyPlayerKills INT(8) NOT NULL, TeamKills INT(8) NOT NULL, DeathsToEnemyBots INT(8) NOT NULL, DeathsToEnemyPlayers INT(8) NOT NULL, DeathsToSelf INT(8) NOT NULL, DeathsToTeam INT(8) NOT NULL, DeathsToOther INT(8) NOT NULL, ControlPointsCaptured INT(8), FlagsCaptured INT(8), FlagsPickedUp INT(8), ObjectivesDestroyed INT(8), UNIQUE(AuthId))");
+		"CREATE TABLE IF NOT EXISTS sps_players (AuthId VARCHAR(35) NOT NULL, RecordType VARCHAR(16) NOT NULL, PlayerName VARCHAR(64) NOT NULL, FirstConnectionTimestamp INT(11) NOT NULL, LastConnectionTimestamp INT(11) NOT NULL, ConnectionCount INT(7) NOT NULL, ConnectedTime INT(9) NOT NULL, ActiveTime INT(9) NOT NULL, EnemyBotKills INT(8) NOT NULL, EnemyPlayerKills INT(8) NOT NULL, TeamKills INT(8) NOT NULL, DeathsToEnemyBots INT(8) NOT NULL, DeathsToEnemyPlayers INT(8) NOT NULL, DeathsToSelf INT(8) NOT NULL, DeathsToTeam INT(8) NOT NULL, DeathsToOther INT(8) NOT NULL, ControlPointsCaptured INT(8), FlagsCaptured INT(8), FlagsPickedUp INT(8), ObjectivesDestroyed INT(8), UNIQUE(AuthId, RecordType))");
+}
+
+public void EnsurePlayerCustomDatabaseRecordExists(int client)
+{
+	char authId[35];
+	GetClientAuthId(client, AuthId_Steam2, authId, sizeof(authId));
+
+	DataPack pack = new DataPack();
+	pack.WriteCell(GetClientUserId(client));
+	pack.WriteString("Custom");
+
+	char queryString[256];
+	SQL_FormatQuery(_database, queryString, sizeof(queryString), "SELECT * FROM sps_players WHERE AuthId = '%s' AND RecordType = '%s'", authId, "Custom");
+	SQL_TQuery(_database, SqlQueryCallback_EnsurePlayerDatabaseRecordsExist1, queryString, pack);
+}
+
+public void EnsurePlayerTotalDatabaseRecordExists(int client)
+{
+	char authId[35];
+	GetClientAuthId(client, AuthId_Steam2, authId, sizeof(authId));
+
+	DataPack pack = new DataPack();
+	pack.WriteCell(GetClientUserId(client));
+	pack.WriteString("Total");
+
+	char queryString[256];
+	SQL_FormatQuery(_database, queryString, sizeof(queryString), "SELECT * FROM sps_players WHERE AuthId = '%s' AND RecordType = '%s'", authId, "Total");
+	SQL_TQuery(_database, SqlQueryCallback_EnsurePlayerDatabaseRecordsExist1, queryString, pack);
 }
 
 public void SqlQueryCallback_Command_AllStats1(Handle database, Handle handle, const char[] sError, int data)
@@ -535,28 +641,36 @@ public void SqlQueryCallback_Command_AllStats1(Handle database, Handle handle, c
 		return;
 	}
 
-	PrintToConsole(client, "PlayerName           | Conns | PlayTime | EBKills | EPKills | DeathsEB | DeathsEP | Suicides | DeathsOther | Objectives");
+	PrintToConsole(client, "PlayerName      | FirstConn  | LastConn   | TotConns | PlayTime  | EBKills  | EPKills  | DeathsEB | DeathsEP | Suicides | DeathsOther | Objectives");
 	while (SQL_FetchRow(handle))
 	{
 		char playerName[21]; // Cut off anything past 20 characters in a player's name.
-		SQL_FetchString(handle, 1, playerName, sizeof(playerName));
-		int connectionCount = SQL_FetchInt(handle, 4);
-		int activeTime = SQL_FetchInt(handle, 6);
-		int enemyBotKills = SQL_FetchInt(handle, 7);
-		int enemyPlayerKills = SQL_FetchInt(handle, 8);
-		int deathsToEnemyBots = SQL_FetchInt(handle, 10);
-		int deathsToEnemyPlayers = SQL_FetchInt(handle, 11);
-		int deathsToSelf = SQL_FetchInt(handle, 12);
-		int deathsToOther = SQL_FetchInt(handle, 14);
-		int controlPointsCaptured = SQL_FetchInt(handle, 15);
-		int flagsCaptured = SQL_FetchInt(handle, 16);
-		int flagsPickedUp = SQL_FetchInt(handle, 17);
-		int objectivesDestroyed = SQL_FetchInt(handle, 18);
+		SQL_FetchString(handle, 2, playerName, sizeof(playerName));
+		int firstConnectionTimestamp = SQL_FetchInt(handle, 3);
+		int lastConnectionTimestamp = SQL_FetchInt(handle, 4);
+		int connectionCount = SQL_FetchInt(handle, 5);
+		int activeTime = SQL_FetchInt(handle, 7);
+		int enemyBotKills = SQL_FetchInt(handle, 8);
+		int enemyPlayerKills = SQL_FetchInt(handle, 9);
+		int deathsToEnemyBots = SQL_FetchInt(handle, 11);
+		int deathsToEnemyPlayers = SQL_FetchInt(handle, 12);
+		int deathsToSelf = SQL_FetchInt(handle, 13);
+		int deathsToOther = SQL_FetchInt(handle, 15);
+		int controlPointsCaptured = SQL_FetchInt(handle, 16);
+		int flagsCaptured = SQL_FetchInt(handle, 17);
+		int flagsPickedUp = SQL_FetchInt(handle, 18);
+		int objectivesDestroyed = SQL_FetchInt(handle, 19);
+
+		char firstConnectionDate[16]; 
+		FormatTime(firstConnectionDate, sizeof(firstConnectionDate), "%F", firstConnectionTimestamp);
+
+		char lastConnectionDate[16]; 
+		FormatTime(lastConnectionDate, sizeof(lastConnectionDate), "%F", lastConnectionTimestamp);
 
 		PrintToConsole(
 			client,
-			"%20s | %5d | %7.1fh | %7d | %7d | %8d | %8d | %8d | %11d | %10d",
-			playerName,
+			"%15s | %10s | %10s | %8d | %8.1fh | %8d | %8d | %8d | %8d | %8d | %11d | %10d",
+			playerName, firstConnectionDate, lastConnectionDate,
 			connectionCount, ((activeTime * 100) / 3600) / float(100),
 			enemyBotKills, enemyPlayerKills,
 			deathsToEnemyBots, deathsToEnemyPlayers, deathsToSelf, deathsToOther,
@@ -587,21 +701,21 @@ public void SqlQueryCallback_Command_MyStats1(Handle database, Handle handle, co
 
 	SQL_FetchRow(handle);
 
-	int connectionCount = SQL_FetchInt(handle, 4);
-	int connectedTime = SQL_FetchInt(handle, 5);
-	int activeTime = SQL_FetchInt(handle, 6);
-	int enemyBotKills = SQL_FetchInt(handle, 7);
-	int enemyPlayerKills = SQL_FetchInt(handle, 8);
-	int teamKills = SQL_FetchInt(handle, 9);
-	int deathsToEnemyBots = SQL_FetchInt(handle, 10);
-	int deathsToEnemyPlayers = SQL_FetchInt(handle, 11);
-	int deathsToSelf = SQL_FetchInt(handle, 12);
-	int deathsToTeam = SQL_FetchInt(handle, 13);
-	int deathsToOther = SQL_FetchInt(handle, 14);
-	int controlPointsCaptured = SQL_FetchInt(handle, 15);
-	int flagsCaptured = SQL_FetchInt(handle, 16);
-	int flagsPickedUp = SQL_FetchInt(handle, 17);
-	int objectivesDestroyed = SQL_FetchInt(handle, 18);
+	int connectionCount = SQL_FetchInt(handle, 5);
+	int connectedTime = SQL_FetchInt(handle, 6);
+	int activeTime = SQL_FetchInt(handle, 7);
+	int enemyBotKills = SQL_FetchInt(handle, 8);
+	int enemyPlayerKills = SQL_FetchInt(handle, 9);
+	int teamKills = SQL_FetchInt(handle, 10);
+	int deathsToEnemyBots = SQL_FetchInt(handle, 11);
+	int deathsToEnemyPlayers = SQL_FetchInt(handle, 12);
+	int deathsToSelf = SQL_FetchInt(handle, 13);
+	int deathsToTeam = SQL_FetchInt(handle, 14);
+	int deathsToOther = SQL_FetchInt(handle, 15);
+	int controlPointsCaptured = SQL_FetchInt(handle, 16);
+	int flagsCaptured = SQL_FetchInt(handle, 17);
+	int flagsPickedUp = SQL_FetchInt(handle, 18);
+	int objectivesDestroyed = SQL_FetchInt(handle, 19);
 
 	PrintToConsole(
 		client,
@@ -612,6 +726,17 @@ public void SqlQueryCallback_Command_MyStats1(Handle database, Handle handle, co
 		controlPointsCaptured + flagsPickedUp + flagsCaptured + objectivesDestroyed, controlPointsCaptured, flagsPickedUp, flagsCaptured, objectivesDestroyed);
 }
 
+public void SqlQueryCallback_Command_ResetStatsCustom1(Handle database, Handle handle, const char[] sError, any nothing)
+{
+	for (int i = 1; i < MaxClients + 1; i++)
+	{
+		if (IsClientConnected(i) && IsClientAuthorized(i) && !IsFakeClient(i))
+		{
+			EnsurePlayerCustomDatabaseRecordExists(i);
+		}
+	}
+}
+
 public void SqlQueryCallback_Default(Handle database, Handle handle, const char[] sError, int data)
 {
 	if (!handle)
@@ -620,14 +745,20 @@ public void SqlQueryCallback_Default(Handle database, Handle handle, const char[
 	}
 }
 
-public void SqlQueryCallback_OnClientPostAdminCheck1(Handle database, Handle handle, const char[] sError, int data)
+public void SqlQueryCallback_EnsurePlayerDatabaseRecordsExist1(Handle database, Handle handle, const char[] sError, DataPack inputPack)
 {
+	inputPack.Reset();
+	int userid = inputPack.ReadCell();
+	char recordType[16];
+	inputPack.ReadString(recordType, sizeof(recordType));
+	CloseHandle(inputPack);
+
 	if (!handle)
 	{
-		ThrowError("SQL query error %d: '%s'", data, sError);
+		ThrowError("SQL query error %d: '%s'", userid, sError);
 	}
 
-	int client = GetClientOfUserId(data);
+	int client = GetClientOfUserId(userid);
 	if (client == 0)
 	{
 		return;
@@ -641,12 +772,6 @@ public void SqlQueryCallback_OnClientPostAdminCheck1(Handle database, Handle han
 
 	int timestamp = GetTime();
 
-	int disconnectTimestamp;
-	if (_authIdDisconnectTimestampMap.GetValue(authId, disconnectTimestamp) && timestamp - disconnectTimestamp < 300)
-	{
-		return;
-	}
-
 	if (SQL_GetRowCount(handle) == 0)
 	{
 		char queryString[512];
@@ -654,30 +779,37 @@ public void SqlQueryCallback_OnClientPostAdminCheck1(Handle database, Handle han
 			_database,
 			queryString,
 			sizeof(queryString),
-			"INSERT INTO sps_players (AuthId, PlayerName, FirstConnectionTimestamp, LastConnectionTimestamp, ConnectionCount, ConnectedTime, ActiveTime, EnemyBotKills, EnemyPlayerKills, TeamKills, DeathsToEnemyBots, DeathsToEnemyPlayers, DeathsToSelf, DeathsToTeam, DeathsToOther, ControlPointsCaptured, FlagsCaptured, FlagsPickedUp, ObjectivesDestroyed) VALUES ('%s', '%s', %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d)",
-			authId, name, timestamp, timestamp, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+			"INSERT INTO sps_players (AuthId, RecordType, PlayerName, FirstConnectionTimestamp, LastConnectionTimestamp, ConnectionCount, ConnectedTime, ActiveTime, EnemyBotKills, EnemyPlayerKills, TeamKills, DeathsToEnemyBots, DeathsToEnemyPlayers, DeathsToSelf, DeathsToTeam, DeathsToOther, ControlPointsCaptured, FlagsCaptured, FlagsPickedUp, ObjectivesDestroyed) VALUES ('%s', '%s', '%s', %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d)",
+			authId, recordType, name, timestamp, timestamp, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 		SQL_TQuery(_database, SqlQueryCallback_Default, queryString);
 
-		PrintToChat(client, "Welcome %s, this is your first time here!", name);
+		if (StrEqual(recordType, "Total"))
+		{
+			PrintToChat(client, "Welcome %s, this is your first time here!", name);
+		}
+
 		return;
 	}
 
 	SQL_FetchRow(handle);
 
-	int connectionCount = SQL_FetchInt(handle, 4);
-	int connectedTime = SQL_FetchInt(handle, 5);
-	int activeTime = SQL_FetchInt(handle, 6);
+	int connectionCount = SQL_FetchInt(handle, 5);
+	int connectedTime = SQL_FetchInt(handle, 6);
+	int activeTime = SQL_FetchInt(handle, 7);
 
 	char queryString[256];
 	SQL_FormatQuery(
 		_database,
 		queryString,
 		sizeof(queryString),
-		"UPDATE sps_players SET LastConnectionTimestamp = %d, ConnectionCount = ConnectionCount + 1, PlayerName = '%s' WHERE AuthId = '%s'",
-		timestamp, name, authId);
+		"UPDATE sps_players SET LastConnectionTimestamp = %d, ConnectionCount = ConnectionCount + 1, PlayerName = '%s' WHERE AuthId = '%s' AND RecordType = '%s'",
+		timestamp, name, authId, recordType);
 	SQL_TQuery(_database, SqlQueryCallback_Default, queryString);
 
-	PrintToChat(client, "Welcome %s, you have played on this server %d times for %dh%dm (%dh%dm active).", name, connectionCount + 1, connectedTime / 3600, connectedTime % 3600 / 60, activeTime / 3600, activeTime % 3600 / 60);
+	if (StrEqual(recordType, "Total"))
+	{
+		PrintToChat(client, "Welcome %s, you have played on this server %d times for %dh%dm (%dh%dm active).", name, connectionCount + 1, connectedTime / 3600, connectedTime % 3600 / 60, activeTime / 3600, activeTime % 3600 / 60);
+	}
 }
 
 public void UpdateClientActiveAndConnectedTimes(int client)

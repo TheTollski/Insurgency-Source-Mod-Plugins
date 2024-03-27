@@ -19,7 +19,7 @@ bool _pluginIsChangingInsBotQuota = false;
 
 public Plugin myinfo = 
 {
-	name = "Bot Balancer",
+	name = "Bot Stacker",
 	author = "Tollski",
 	description = "Stacks bots against players.",
 	version = PLUGIN_VERSION,
@@ -29,7 +29,7 @@ public Plugin myinfo =
 // Forwards
 public void OnPluginStart()
 {
-	CreateConVar("sm_botbalancer_version", PLUGIN_VERSION, "Standard plugin version ConVar. Please don't change me!", FCVAR_REPLICATED|FCVAR_NOTIFY|FCVAR_DONTRECORD);
+	CreateConVar("sm_botstacker_version", PLUGIN_VERSION, "Standard plugin version ConVar. Please don't change me!", FCVAR_REPLICATED|FCVAR_NOTIFY|FCVAR_DONTRECORD);
 
 	ConVar insBotQuotaConVar = FindConVar("ins_bot_quota");
 	insBotQuotaConVar.AddChangeHook(ConVarChanged_InsBotQuota);
@@ -222,13 +222,13 @@ public void EnableBotStacking(int teamThatAPlayerIsLeaving, int teamThatAPlayerI
 {
 	if (!_botStackingIsEnabled)
 	{
-		PrintToServer("[Bot Balancer] EnableBotStacking");
+		PrintToServer("[Bot Stacker] EnableBotStacking");
 		_botStackingIsEnabled = true;
 		
 		ChangeBotQuota(8, true); // todo: set quota based on max players
 		
 		ConVar mpTeamsUnbalanceLimitConVar = FindConVar("mp_teams_unbalance_limit");
-		PrintToServer("[Bot Balancer] Changing mp_teams_unbalance_limit from %d to 0.", mpTeamsUnbalanceLimitConVar.IntValue);
+		PrintToServer("[Bot Stacker] Changing mp_teams_unbalance_limit from %d to 0.", mpTeamsUnbalanceLimitConVar.IntValue);
 		mpTeamsUnbalanceLimitConVar.IntValue = 0;
 	}
 
@@ -265,7 +265,7 @@ public void EnableBotStacking(int teamThatAPlayerIsLeaving, int teamThatAPlayerI
 
 	if (realPlayersOnSecurityTeam > 0 && realPlayersOnInsurgentsTeam > 0)
 	{
-		PrintToConsoleAll("[Bot Balancer] Trying to enable bot stacking but there seem to be real players on both teams.");
+		PrintToConsoleAll("[Bot Stacker] Trying to enable bot stacking but there seem to be real players on both teams.");
 		DisableBotStacking();
 		return;
 	}
@@ -283,7 +283,7 @@ public void EnableBotStacking(int teamThatAPlayerIsLeaving, int teamThatAPlayerI
 	}
 	else
 	{
-		PrintToConsoleAll("[Bot Balancer] Trying to enable bot stacking but there don't seem to be real players on either teams.");
+		PrintToConsoleAll("[Bot Stacker] Trying to enable bot stacking but there don't seem to be real players on either teams.");
 		DisableBotStacking();
 		return;
 	}
@@ -300,7 +300,7 @@ public void EnableBotStacking(int teamThatAPlayerIsLeaving, int teamThatAPlayerI
 	}
 	else
 	{
-		PrintToChatAll("[Bot Balancer] Balancing not supported with %d real players on team.", realPlayersOnTeam);
+		PrintToChatAll("[Bot Stacker] Bot stacking not supported with %d real players on team.", realPlayersOnTeam);
 	}
 
 	SetBotsPerTeam(_teamWithRealPlayers == 2 ? _desiredBotsOnRealPlayersTeam : _desiredBotsOnOtherTeam, _teamWithRealPlayers == 3 ? _desiredBotsOnRealPlayersTeam : _desiredBotsOnOtherTeam);
@@ -313,7 +313,7 @@ public void DisableBotStacking()
 		return;
 	}
 	
-	PrintToServer("[Bot Balancer] DisableBotStacking");
+	PrintToServer("[Bot Stacker] DisableBotStacking");
 	_botStackingIsEnabled = false;
 	_desiredBotsOnRealPlayersTeam = 0;
 	_desiredBotsOnOtherTeam = 0;
@@ -322,7 +322,7 @@ public void DisableBotStacking()
 	ChangeBotQuota(_normalBotQuota, false);
 	
 	ConVar mpTeamsUnbalanceLimitConVar = FindConVar("mp_teams_unbalance_limit");
-	PrintToServer("[Bot Balancer] Changing mp_teams_unbalance_limit from %d to 1.", mpTeamsUnbalanceLimitConVar.IntValue);
+	PrintToServer("[Bot Stacker] Changing mp_teams_unbalance_limit from %d to 1.", mpTeamsUnbalanceLimitConVar.IntValue);
 	mpTeamsUnbalanceLimitConVar.IntValue = 1;
 
 	int securityTeamPlayerCount = GetTeamClientCount(2);
@@ -343,7 +343,7 @@ public void DisableBotStacking()
 public void ChangeBotQuota(int newQuota, bool savePreviousQuota)
 {
 	ConVar insBotQuotaConVar = FindConVar("ins_bot_quota");
-	PrintToServer("[Bot Balancer] Changing ins_bot_quota from %d to %d.", insBotQuotaConVar.IntValue, newQuota);
+	PrintToServer("[Bot Stacker] Changing ins_bot_quota from %d to %d.", insBotQuotaConVar.IntValue, newQuota);
 
 	if (savePreviousQuota)
 	{

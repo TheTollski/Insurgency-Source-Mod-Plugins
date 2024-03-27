@@ -8,7 +8,6 @@
 
 int _bombPlantedByTeam = -1;
 bool _isEnabled = false;
-int _laserEntity = -1;
 int _normalMpIgnoreWinConditionsValue;
 
 public Plugin myinfo = 
@@ -137,15 +136,10 @@ public void Event_RoundStart(Event event, const char[] name, bool dontBroadcast)
 	{
 		return;
 	}
-	
+
 	_bombPlantedByTeam = -1;
 	MarkBomb();
-	CreateTimer(1.0, Event_RoundStart_AfterDelay);
-}
-
-public Action Event_RoundStart_AfterDelay(Handle timer)
-{
-	PrintHintTextToAll("Get the bomb and plant it at the enemy's base!");
+	PrintCenterTextAll("Get the bomb and plant it at the enemy's base!");
 }
 
 // 
@@ -162,7 +156,7 @@ public void OnBombDropped()
 public void OnBombPickedUp(int teamWithBomb)
 {
 	char[] yourTeamMessage = "Your team has picked up the bomb!";
-	char[] enemyTeamMessage = "The enemy team has picked up the bomb!";
+	char[] enemyTeamMessage = "The enemy team has picked up the bomb! Defend your base.";
 	PrintHintToPlayersByTeam(teamWithBomb == 2 ? yourTeamMessage : enemyTeamMessage, teamWithBomb == 3 ? yourTeamMessage : enemyTeamMessage);
 
 	MarkPlantZone(teamWithBomb);
@@ -276,23 +270,21 @@ public void MarkPlantZone(int teamWithBomb)
 
 public void HideMarker()
 {
-	if (_laserEntity == -1)
+	int laserEntity = GetEntityByNameAndClassName("MarkerLaser", "env_laser");
+	if (laserEntity == -1)
 	{
 		return;
 	}
 
-	AcceptEntityInput(_laserEntity, "Kill");
-	_laserEntity = -1;
+	AcceptEntityInput(laserEntity, "Kill");
 }
 
 public void ShowMarker(int entityToMark, const char[] renderColor)
 {
-	if (_laserEntity != -1)
+	if (GetEntityByNameAndClassName("MarkerLaser", "env_laser") != -1)
 	{
 		HideMarker();
 	}
-
-	PrintToChatAll("Showing marker on entity %d with color '%s'.", entityToMark, renderColor);
 
 	float laserPosition[3];
 	GetEntityPosition(entityToMark, laserPosition);
@@ -301,30 +293,28 @@ public void ShowMarker(int entityToMark, const char[] renderColor)
 	char entityTargetName[128];
 	GetEntPropString(entityToMark, Prop_Data, "m_iName", entityTargetName, sizeof(entityTargetName));
 
-	_laserEntity = CreateEntityByName("env_laser");
-	if (_laserEntity == -1)
+	int laserEntity = CreateEntityByName("env_laser");
+	if (laserEntity == -1)
 	{
 		return;
 	}
 
-	DispatchKeyValue(_laserEntity,"spawnflags", "49");
-	DispatchKeyValue(_laserEntity,"targetname", "my_laser");
-	DispatchKeyValue(_laserEntity,"renderfx", "0");
-	DispatchKeyValue(_laserEntity,"LaserTarget", entityTargetName);
-	DispatchKeyValue(_laserEntity,"renderamt", "188");
-	DispatchKeyValue(_laserEntity,"rendercolor", renderColor);
-	DispatchKeyValue(_laserEntity,"Radius", "256");
-	DispatchKeyValue(_laserEntity,"life", "0");
-	DispatchKeyValue(_laserEntity,"width", "10");
-	DispatchKeyValue(_laserEntity,"NoiseAmplitude", "0");
-	DispatchKeyValue(_laserEntity,"texture", "sprites/laserbeam.spr");
-	DispatchKeyValue(_laserEntity,"TextureScroll", "100");
-	DispatchKeyValue(_laserEntity,"framerate", "0");
-	DispatchKeyValue(_laserEntity,"framestart", "0");
-	DispatchKeyValue(_laserEntity,"StrikeTime", "10");
-	DispatchKeyValue(_laserEntity,"damage", "0");
-	DispatchSpawn(_laserEntity);
-	TeleportEntity(_laserEntity, laserPosition, NULL_VECTOR, NULL_VECTOR);
-
-	PrintToChatAll("Marker shown at %d %d %d.", laserPosition[0], laserPosition[1], laserPosition[2]);
+	DispatchKeyValue(laserEntity,"spawnflags", "49");
+	DispatchKeyValue(laserEntity,"targetname", "MarkerLaser");
+	DispatchKeyValue(laserEntity,"renderfx", "0");
+	DispatchKeyValue(laserEntity,"LaserTarget", entityTargetName);
+	DispatchKeyValue(laserEntity,"renderamt", "188");
+	DispatchKeyValue(laserEntity,"rendercolor", renderColor);
+	DispatchKeyValue(laserEntity,"Radius", "256");
+	DispatchKeyValue(laserEntity,"life", "0");
+	DispatchKeyValue(laserEntity,"width", "10");
+	DispatchKeyValue(laserEntity,"NoiseAmplitude", "0");
+	DispatchKeyValue(laserEntity,"texture", "sprites/laserbeam.spr");
+	DispatchKeyValue(laserEntity,"TextureScroll", "100");
+	DispatchKeyValue(laserEntity,"framerate", "0");
+	DispatchKeyValue(laserEntity,"framestart", "0");
+	DispatchKeyValue(laserEntity,"StrikeTime", "10");
+	DispatchKeyValue(laserEntity,"damage", "0");
+	DispatchSpawn(laserEntity);
+	TeleportEntity(laserEntity, laserPosition, NULL_VECTOR, NULL_VECTOR);
 }

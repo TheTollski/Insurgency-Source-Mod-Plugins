@@ -11,7 +11,7 @@ Database _database;
 int _controlPointsThatPlayersAreTouching[MAXPLAYERS + 1] = { -1, ... };
 int _lastActiveTimeSavedTimestamps[MAXPLAYERS + 1] = { 0, ... };
 int _lastConnectedTimeSavedTimestamps[MAXPLAYERS + 1] = { 0, ... };
-//int _pluginStartTimestamp;
+int _pluginStartTimestamp;
 
 public Plugin myinfo =
 {
@@ -47,9 +47,10 @@ public void OnPluginStart()
 	RegConsoleCmd("sm_mystats", Command_MyStats, "Prints your stats.");
 
 	ConnectToDatabase();
+	ResetStartupStats();
 
 	_authIdDisconnectTimestampMap = new StringMap();
-	//_pluginStartTimestamp = GetTime();
+	_pluginStartTimestamp = GetTime();
 }
 
 public void OnClientDisconnect(int client)
@@ -92,6 +93,7 @@ public void OnClientPostAdminCheck(int client)
 	}
 
 	EnsurePlayerCustomDatabaseRecordExists(client);
+	EnsurePlayerStartupDatabaseRecordExists(client);
 	EnsurePlayerTotalDatabaseRecordExists(client);
 }
 
@@ -106,7 +108,7 @@ public Action Command_AllStats(int client, int args)
 {
 	if (args > 3)
 	{
-		ReplyToCommand(client, "[Simple Player Stats] Usage: sm_allstats [Type('Total'|'Custom)] [SortColumn('ActiveTime'|'DeathsToEnemyPlayers'|'EnemyPlayerKills'|'LastConnectionTimestamp')] [Page]");
+		ReplyToCommand(client, "[Simple Player Stats] Usage: sm_allstats [Type('Total'|'Custom'|'Startup')] [SortColumn('ActiveTime'|'DeathsToEnemyPlayers'|'EnemyPlayerKills'|'LastConnectionTimestamp')] [Page]");
 		return Plugin_Handled;
 	}
 
@@ -150,6 +152,10 @@ public Action Command_AllStats(int client, int args)
 	{
 		recordType = "Custom";
 	}
+	else if (StrEqual(arg1, "Startup", false))
+	{
+		recordType = "Startup";
+	}
 	else if (StrEqual(arg1, "Total", false))
 	{
 		recordType = "Total";
@@ -188,6 +194,13 @@ public Action Command_AllStats(int client, int args)
 	int offset = (page - 1) * pageSize;
 
 	ReplyToCommand(client, "[Simple Player Stats] %s Stats are being printed in the console.", recordType);
+	if (StrEqual(recordType, "Startup"))
+	{
+		char dateTime[32]; 
+		FormatTime(dateTime, sizeof(dateTime), "%F %R", _pluginStartTimestamp);
+
+		ReplyToCommand(client, "[Simple Player Stats] Last startup: %s", dateTime);
+	}
 
 	char queryString[256];
 	SQL_FormatQuery(
@@ -236,7 +249,7 @@ public Action Command_AuditLogs(int client, int args)
 public Action Command_MyStats(int client, int args)
 {
 	if (args > 1) {
-		ReplyToCommand(client, "[Simple Player Stats] Usage: sm_mystats [Type('Total'|'Custom)]");
+		ReplyToCommand(client, "[Simple Player Stats] Usage: sm_mystats [Type('Total'|'Custom'|'Startup')]");
 		return Plugin_Handled;
 	}
 
@@ -255,6 +268,10 @@ public Action Command_MyStats(int client, int args)
 	{
 		recordType = "Custom";
 	}
+	else if (StrEqual(arg1, "Startup", false))
+	{
+		recordType = "Startup";
+	}
 	else if (StrEqual(arg1, "Total", false))
 	{
 		recordType = "Total";
@@ -269,6 +286,13 @@ public Action Command_MyStats(int client, int args)
 	GetClientAuthId(client, AuthId_Steam2, authId, sizeof(authId));
 
 	ReplyToCommand(client, "[Simple Player Stats] Your %s stats are being printed in the console.", recordType);
+	if (StrEqual(recordType, "Startup"))
+	{
+		char dateTime[32]; 
+		FormatTime(dateTime, sizeof(dateTime), "%F %R", _pluginStartTimestamp);
+
+		ReplyToCommand(client, "[Simple Player Stats] Last startup: %s", dateTime);
+	}
 
 	char queryString[256];
 	SQL_FormatQuery(_database, queryString, sizeof(queryString), "SELECT * FROM sps_players WHERE AuthId = '%s' AND RecordType = '%s'", authId, recordType);
@@ -646,32 +670,40 @@ public void CreateAuditLog(const char[] logDescription)
 	SQL_TQuery(_database, SqlQueryCallback_Default, queryString);
 }
 
-public void EnsurePlayerCustomDatabaseRecordExists(int client)
+public void EnsurePlayerAnyDatabaseRecordExists(int client, const char[] recordType)
 {
 	char authId[35];
 	GetClientAuthId(client, AuthId_Steam2, authId, sizeof(authId));
 
 	DataPack pack = new DataPack();
 	pack.WriteCell(GetClientUserId(client));
-	pack.WriteString("Custom");
+	pack.WriteString(recordType);
 
 	char queryString[256];
-	SQL_FormatQuery(_database, queryString, sizeof(queryString), "SELECT * FROM sps_players WHERE AuthId = '%s' AND RecordType = '%s'", authId, "Custom");
+	SQL_FormatQuery(_database, queryString, sizeof(queryString), "SELECT * FROM sps_players WHERE AuthId = '%s' AND RecordType = '%s'", authId, recordType);
 	SQL_TQuery(_database, SqlQueryCallback_EnsurePlayerDatabaseRecordsExist1, queryString, pack);
+}
+
+public void EnsurePlayerCustomDatabaseRecordExists(int client)
+{
+	EnsurePlayerAnyDatabaseRecordExists(client, "Custom");
+}
+
+public void EnsurePlayerStartupDatabaseRecordExists(int client)
+{
+	EnsurePlayerAnyDatabaseRecordExists(client, "Startup");
 }
 
 public void EnsurePlayerTotalDatabaseRecordExists(int client)
 {
-	char authId[35];
-	GetClientAuthId(client, AuthId_Steam2, authId, sizeof(authId));
+	EnsurePlayerAnyDatabaseRecordExists(client, "Total");
+}
 
-	DataPack pack = new DataPack();
-	pack.WriteCell(GetClientUserId(client));
-	pack.WriteString("Total");
-
+public void ResetStartupStats()
+{
 	char queryString[256];
-	SQL_FormatQuery(_database, queryString, sizeof(queryString), "SELECT * FROM sps_players WHERE AuthId = '%s' AND RecordType = '%s'", authId, "Total");
-	SQL_TQuery(_database, SqlQueryCallback_EnsurePlayerDatabaseRecordsExist1, queryString, pack);
+	SQL_FormatQuery(_database, queryString, sizeof(queryString), "DELETE FROM sps_players WHERE RecordType = 'Startup'");
+	SQL_TQuery(_database, SqlQueryCallback_Command_ResetStatsCustom1, queryString);
 }
 
 public void SqlQueryCallback_Command_AllStats1(Handle database, Handle handle, const char[] sError, int data)
@@ -824,6 +856,22 @@ public void SqlQueryCallback_Command_ResetStatsCustom1(Handle database, Handle h
 		if (IsClientConnected(i) && IsClientAuthorized(i) && !IsFakeClient(i))
 		{
 			EnsurePlayerCustomDatabaseRecordExists(i);
+		}
+	}
+}
+
+public void SqlQueryCallback_Command_ResetStatsStartup1(Handle database, Handle handle, const char[] sError, any nothing)
+{
+	if (!handle)
+	{
+		ThrowError("SQL query error in SqlQueryCallback_Command_ResetStatsStartup1: '%s'", sError);
+	}
+
+	for (int i = 1; i < MaxClients + 1; i++)
+	{
+		if (IsClientConnected(i) && IsClientAuthorized(i) && !IsFakeClient(i))
+		{
+			EnsurePlayerStartupDatabaseRecordExists(i);
 		}
 	}
 }

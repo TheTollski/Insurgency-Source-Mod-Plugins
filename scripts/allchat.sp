@@ -15,6 +15,9 @@ public Plugin myinfo =
 	url = "Your website URL/AlliedModders profile URL"
 };
 
+// TODO:
+// Spectate chat
+
 // Forwards
 public void OnPluginStart()
 {

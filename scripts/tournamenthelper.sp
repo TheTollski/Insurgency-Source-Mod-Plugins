@@ -69,7 +69,7 @@ int _teamRoundWinsRequired = 0;
 // simpleplayerstats should only capture stats during matches
 // capture very basic stats to save to match history
 // don't cancel vote if nobody votes (time limit + cancelvote command?)
-// Any player voting not ready should cancel ready vote.
+// Any player voting not ready should immediately cancel ready vote.
 
 public Plugin myinfo =
 {

@@ -4,7 +4,7 @@
 #pragma semicolon 1
 #pragma newdecls required
 
-#define PLUGIN_VERSION "1.03"
+#define PLUGIN_VERSION "1.04"
 
 StringMap _authIdDisconnectTimestampMap;
 Database _database;
@@ -894,7 +894,7 @@ public void SqlQueryCallback_EnsurePlayerDatabaseRecordsExist1(Handle database, 
 
 		if (StrEqual(recordType, "Total"))
 		{
-			PrintToChat(client, "\x05Welcome %s, this is your first time here!", name);
+			PrintToChatAll("\x05Welcome %s, this is your first time here!", name);
 		}
 
 		return;
@@ -915,7 +915,7 @@ public void SqlQueryCallback_EnsurePlayerDatabaseRecordsExist1(Handle database, 
 
 	if (StrEqual(recordType, "Total"))
 	{
-		PrintToChat(client, "\x05Welcome %s, you have played on this server %d times for %dh%dm (%dh%dm active).", name, connectionCount + 1, connectedTime / 3600, connectedTime % 3600 / 60, activeTime / 3600, activeTime % 3600 / 60);
+		PrintToChatAll("\x05Welcome %s, you have played on this server %d times for %dh%dm (%dh%dm active).", name, connectionCount + 1, connectedTime / 3600, connectedTime % 3600 / 60, activeTime / 3600, activeTime % 3600 / 60);
 	}
 }
 

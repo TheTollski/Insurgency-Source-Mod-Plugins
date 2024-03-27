@@ -35,7 +35,6 @@ int _team2GameWins = 0; // This team joined as security.
 int _teamGameWinsRequired = 0;
 
 // TODO:
-// Pause playerstats while match not in progress.
 // Automatically change map when match is over, or print hint text.
 
 public Plugin myinfo =
@@ -120,35 +119,6 @@ public bool OnClientConnect(int client, char[] rejectmsg, int maxlen)
 	}
 	
 	return false;
-}
-
-public void OnClientDisconnect(int client)
-{
-	if (IsFakeClient(client))
-	{
-		return;
-	}
-
-	if (_currentGameState == GAME_STATE_IDLE)
-	{
-		return;
-	}
-
-	for (int i = 1; i < MaxClients + 1; i++)
-	{
-		if (client == i)
-		{
-			continue;
-		}
-
-		if (IsClientInGame(i) && !IsFakeClient(i))
-		{
-			return;
-		}
-	}
-
-	// PrintToServer("[Tournament Helper] All players disconnected. Ending match and voting.");
-	// SetGameState(GAME_STATE_IDLE);
 }
 
 public void OnClientPostAdminCheck(int client)
@@ -296,8 +266,8 @@ public Action Command_StartVote(int client, int args)
 	int currentPlayersOnSecurity = GetPlayerCountOnTeam(2);
 	if (currentPlayersOnSecurity == 0 || currentPlayersOnInsurgents == 0)
 	{
-		// ReplyToCommand(client, "[Tournament Helper] Failed to start vote; both teams must have players."); TODO UNCOMMENT
-		// return Plugin_Handled;
+		ReplyToCommand(client, "[Tournament Helper] Failed to start vote; both teams must have players.");
+		return Plugin_Handled;
 	}
 
 	DataPack pack = new DataPack();
@@ -613,7 +583,7 @@ public void SetGameState(int gameState)
 	{
 		PrintToChatAll("\x07f5bf03[Tournament Helper] Match is ready to start. Call an in-game vote to select the first map.");
 
-		// _conVar_insBotQuota.IntValue = 0; TODO UNCOMMENT
+		_conVar_insBotQuota.IntValue = 0;
 		_matchId = 0;
 
 		CreateMatchRecord();		
@@ -750,8 +720,8 @@ public void Handle_VoteResults(
 				PrintToChatAll("[Tournament Helper] Teams did not agree on an option.");	
 			}
 
-			// StartVote(VOTE_TYPE_WINCOUNT, null); TODO UNCOMMENT
-			// return;
+			StartVote(VOTE_TYPE_WINCOUNT, null);
+			return;
 		}
 
 		char item[64];

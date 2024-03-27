@@ -19,6 +19,7 @@ int _playerTeamInfo[MAXPLAYERS + 1] = { -1, ... };
 // Tracking match results
 // Enforce no team swapping while match not in progress
 // Point system?
+// Unlock server if empty or game is too long.
 
 public Plugin myinfo =
 {
@@ -77,19 +78,7 @@ public Action Command_Jointeam(int client, const char[] command, int args)
 
 	if (_isMatchInProgess)
 	{
-		char authId[35];
-		GetClientAuthId(client, AuthId_Steam2, authId, sizeof(authId));
-
-		int allowedTeam = -1;
-		for (int i = 0; i < _playerCount; i++)
-		{
-			// PrintToChat(client, "authId %s, _playerAuthIdInfo[%d] %s", authId, i, _playerAuthIdInfo[i]);
-			if (StrEqual(authId, _playerAuthIdInfo[i]))
-			{
-				allowedTeam = _playerTeamInfo[i];
-				continue;
-			}
-		}
+		int allowedTeam = GetPlayerAllowedTeam(client);
 
 		// PrintToChat(client, "_playerCount %d, allowedTeam %d", _playerCount, allowedTeam);
 
@@ -116,12 +105,6 @@ public Action Command_StartVote(int client, int args)
 		return Plugin_Handled;
 	}
 
-	if (IsVoteInProgress())
-	{
-		ReplyToCommand(client, "\x07[Tournament Helper] Failed to start vote; another vote is already in progress.");
-		return Plugin_Handled;
-	}
-
 	int currentPlayersOnInsurgents = GetPlayerCountOnTeam(3);
 	int currentPlayersOnSecurity = GetPlayerCountOnTeam(2);
 	ReplyToCommand(client, "[Tournament Helper] ins %d, sec %d", currentPlayersOnInsurgents, currentPlayersOnSecurity);
@@ -132,40 +115,30 @@ public Action Command_StartVote(int client, int args)
 		// return Plugin_Handled;
 	}
 
+	if (IsVoteInProgress())
+	{
+		ReplyToCommand(client, "\x07[Tournament Helper] Failed to start vote; another vote is already in progress.");
+		return Plugin_Handled;
+	}
+
 	ReplyToCommand(client, "\x05[Tournament Helper] Initiating vote.");
 
 	char requestorName[MAX_NAME_LENGTH];
 	GetClientName(client, requestorName, sizeof(requestorName));
 
-	_currentVoteType = 0;
-	_isMatchInProgess = true;
-	_playerCount = 0;
-	for (int i = 1; i < MaxClients + 1; i++)
-	{
-		_playerAuthIdInfo[i] = "";
-		_playerTeamInfo[i] = -1;
-		if (IsClientInGame(i) && !IsFakeClient(i))
-		{
-			char authId[35];
-			GetClientAuthId(i, AuthId_Steam2, authId, sizeof(authId));
-			
-			_playerAuthIdInfo[_playerCount] = authId;
-			_playerTeamInfo[_playerCount] = GetClientTeam(i);
-
-			_playerCount++;
-		}
-	}
+	SetIsMatchInProgess(true);
+	_currentVoteType = 1;
 
 	Menu menu = new Menu(Handle_VoteMenu);
 	menu.VoteResultCallback = Handle_VoteResults;
-	menu.SetTitle("'%s' has initiated a vote. Are you ready?", requestorName);
+	menu.SetTitle("'%s' has initiated a vote to start the match. Is your team ready?", requestorName);
 	// menu.SetTitle("Change map to: %s?", map);
 	// menu.AddItem(map, "Yes");
 	// menu.AddItem("no", "No");
 	menu.AddItem("yes", "Yes");
 	menu.AddItem("no", "No");
 	menu.ExitButton = false;
-	menu.DisplayVoteToAll(5);
+	menu.DisplayVoteToAll(10);
 
 	return Plugin_Handled;
 }
@@ -178,35 +151,56 @@ public void Event_PlayerTeam(Event event, const char[] name, bool dontBroadcast)
 {	
 	int userid = event.GetInt("userid");
 	int team = event.GetInt("team");
-	int oldteam = event.GetInt("oldteam");
+	// int oldteam = event.GetInt("oldteam");
 	
-	PrintToChatAll("Player Team Event. userid: %d, team: %d, oldteam: %d.", userid, team, oldteam);
+	// PrintToChatAll("Player Team Event. userid: %d, team: %d, oldteam: %d.", userid, team, oldteam);
 
 	int client = GetClientOfUserId(userid);
-	bool isRealPlayer = !IsFakeClient(client);
-	
-	// if (isRealPlayer)
-	// {
-	// 	CheckIfBotStackingStatusShouldBeEnabledAndSetIt(oldteam, team);
-		
-	// 	return;
-	// }
+	if (IsFakeClient(client) || !_isMatchInProgess)
+	{
+		return;
+	}
 
-	// if (!_botStackingIsEnabled || team < 2)
-	// {
-	// 	return;
-	// }
-	
-	// DataPack pack = new DataPack();
-	// pack.WriteCell(client);
-	// pack.WriteCell(team);
-		
-	// CreateTimer(0.25, PlayerTeamEvent_Bot_AfterDelay, pack);
+	int allowedTeam = GetPlayerAllowedTeam(client);
+	if (allowedTeam != team)
+	{
+		DataPack pack = new DataPack();
+		pack.WriteCell(client);
+		pack.WriteCell(allowedTeam);
+		CreateTimer(0.25, PlayerTeamEvent_ChangeClientTeam_AfterDelay, pack);
+	}
+}
+
+public Action PlayerTeamEvent_ChangeClientTeam_AfterDelay(Handle timer, DataPack inputPack)
+{
+	inputPack.Reset();
+	int client = inputPack.ReadCell();
+	int allowedTeam = inputPack.ReadCell();
+	CloseHandle(inputPack);
+
+	PrintToChat(client, "You are being moved to your designated team.");
+	ChangeClientTeam(client, allowedTeam);
 }
 
 //
 // Helper Functions
 //
+
+public int GetPlayerAllowedTeam(int playerClient)
+{
+	char authId[35];
+	GetClientAuthId(playerClient, AuthId_Steam2, authId, sizeof(authId));
+
+	for (int i = 0; i < _playerCount; i++)
+	{
+		if (StrEqual(authId, _playerAuthIdInfo[i]))
+		{
+			return _playerTeamInfo[i];
+		}
+	}
+
+	return -1;
+}
 
 public int GetPlayerCountOnEitherTeam()
 {
@@ -227,14 +221,66 @@ public int GetPlayerCountOnTeam(int team)
 	return count;
 }
 
+public void SetIsMatchInProgess(bool isMatchInProgress)
+{
+	if (isMatchInProgress == _isMatchInProgess)
+	{
+		return;
+	}
+
+	PrintToChatAll("[Tournament Helper] Setting _isMatchInProgess to %d", isMatchInProgress);
+
+
+	_isMatchInProgess = isMatchInProgress;
+	_playerCount = 0;
+
+	for (int i = 1; i < MaxClients + 1; i++)
+	{
+		_playerAuthIdInfo[i] = "";
+		_playerTeamInfo[i] = -1;
+
+		if (!isMatchInProgress)
+		{
+			continue;
+		}
+
+		if (IsClientInGame(i) && !IsFakeClient(i))
+		{
+			char authId[35];
+			GetClientAuthId(i, AuthId_Steam2, authId, sizeof(authId));
+			
+			_playerAuthIdInfo[_playerCount] = authId;
+			_playerTeamInfo[_playerCount] = GetClientTeam(i);
+
+			_playerCount++;
+		}
+	}
+}
+
+// Vote Helper Functions
+
 public int Handle_VoteMenu(Menu menu, MenuAction action, int param1, int param2)
 {
 	if (action == MenuAction_End)
 	{
+		PrintToChatAll("[Tournament Helper] Handle_VoteMenu. action MenuAction_End");
 		/* This is called after VoteEnd */
 		delete menu;
 
 		_currentVoteType = 0;
+	}
+	if (action == MenuAction_Cancel)
+	{
+		PrintToChatAll("[Tournament Helper] Handle_VoteMenu. action MenuAction_Cancel");
+	}
+	if (action == MenuAction_VoteCancel)
+	{
+		PrintToChatAll("[Tournament Helper] Handle_VoteMenu. action MenuAction_VoteCancel");
+		SetIsMatchInProgess(false);
+	}
+	if (action == MenuAction_VoteEnd)
+	{
+		PrintToChatAll("[Tournament Helper] Handle_VoteMenu. action MenuAction_VoteEnd");
 	}
 }
  
@@ -260,29 +306,63 @@ public void Handle_VoteResults(
 
 	for (int i = 0; i < num_clients; i++)
 	{
-		PrintToChatAll("[Tournament Helper] client %d, %d, %d", i, client_info[i][VOTEINFO_CLIENT_INDEX], client_info[i][VOTEINFO_CLIENT_ITEM]);
+		PrintToChatAll("[Tournament Helper] client[%d], index %d, item %d", i, client_info[i][VOTEINFO_CLIENT_INDEX], client_info[i][VOTEINFO_CLIENT_ITEM]);
 	}
 
 	for (int i = 0; i < num_items; i++)
 	{
-		PrintToChatAll("[Tournament Helper] item %d, %d, %d", i, item_info[i][VOTEINFO_ITEM_INDEX], item_info[i][VOTEINFO_ITEM_VOTES]);
+		char item[64];
+		menu.GetItem(item_info[i][VOTEINFO_ITEM_INDEX], item, sizeof(item));
+		PrintToChatAll("[Tournament Helper] item[%d], index %d, votes %d, value %s", i, item_info[i][VOTEINFO_ITEM_INDEX], item_info[i][VOTEINFO_ITEM_VOTES], item);
 	}
 
 	if (_currentVoteType == 1) // Ready Vote
 	{
-		// Verify yes from each player on a team and 0 nos from any other players.
-		for (int i = 1; i < MaxClients + 1; i++)
+		int yesItemIndex = -1;
+		for (int i = 0; i < num_items; i++)
 		{
-			// _playerAuthIdInfo[i] = ""
-			// _playerTeamInfo[i] = -1;
-			// if (IsClientInGame(i) && !IsFakeClient(i))
-			// {
-			// 		char authId[35];
-			// 		GetClientAuthId(client, AuthId_Steam2, authId, sizeof(authId));
-			// 		strcopy(authId, sizeof(authId), _playerAuthIdInfo[i]);
+			char item[64];
+			menu.GetItem(item_info[i][VOTEINFO_ITEM_INDEX], item, sizeof(item));
+			if (StrEqual(item, "yes"))
+			{
+				yesItemIndex = item_info[i][VOTEINFO_ITEM_INDEX];
+				break;
+			}
+		}
 
-			// 	_playerTeamInfo[i] = GetClientTeam(i);
-			// }
+		// Verify yes from each player on a team.
+		for (int i = 0; i < _playerCount; i++)
+		{
+			if (_playerTeamInfo[i] != 2 && _playerTeamInfo[i] != 3)
+			{
+				continue;
+			}
+
+			// Get vote for player.
+			int playerVoteItemIndex = -2;
+			for (int j = 0; j < num_clients; j++)
+			{
+				char authId[35];
+				GetClientAuthId(client_info[j][VOTEINFO_CLIENT_INDEX], AuthId_Steam2, authId, sizeof(authId));
+
+				PrintToChatAll("[Tournament Helper] Checking %s vs %s", authId, _playerAuthIdInfo[i]);
+				if (StrEqual(authId, _playerAuthIdInfo[i]))
+				{
+					playerVoteItemIndex = client_info[j][VOTEINFO_CLIENT_ITEM];
+
+					char playerName[64];
+					GetClientName(client_info[j][VOTEINFO_CLIENT_INDEX], playerName, sizeof(playerName));
+					char item[64];
+					menu.GetItem(client_info[j][VOTEINFO_CLIENT_ITEM], item, sizeof(item));
+					PrintToChatAll("[Tournament Helper] %s voted %s", playerName, item);
+				}
+			}
+
+			if (playerVoteItemIndex < 0 || playerVoteItemIndex != yesItemIndex)
+			{
+				SetIsMatchInProgess(false);
+				return;
+			}
 		}
 	}
 }

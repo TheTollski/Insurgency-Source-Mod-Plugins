@@ -4,7 +4,7 @@
 #pragma semicolon 1
 #pragma newdecls required
 
-#define PLUGIN_VERSION "1.00"
+#define PLUGIN_VERSION "1.01"
 
 public Plugin myinfo = 
 {
@@ -14,9 +14,6 @@ public Plugin myinfo =
 	version = PLUGIN_VERSION,
 	url = "Your website URL/AlliedModders profile URL"
 };
-
-// TODO:
-// Spectate chat
 
 // Forwards
 public void OnPluginStart()
@@ -34,23 +31,19 @@ public Action OnClientSayCommand(int client, const char[] command, const char[] 
 	}
 
 	int clientTeam = GetClientTeam(client);
-	if (clientTeam != 2 && clientTeam != 3)
-	{
-		return;
-	}
 
 	char playerName[MAX_NAME_LENGTH];
 	GetClientName(client, playerName, sizeof(playerName));
 
 	for (int i = 1; i < MaxClients + 1; i++)
 	{
-		if (IsClientInGame(i) && !IsFakeClient(i) && GetClientTeam(i) != clientTeam)
+		if (IsClientInGame(i) && !IsFakeClient(i) && i != client)
 		{
-			if (GetClientTeam(i) < 2)
+			if (GetClientTeam(client) < 2) // Spectators can't seem to chat to eachother or to players.
 			{
-				PrintToChat(i, "*DEAD* %s : %s", playerName, sArgs);
+				PrintToChat(i, "*SPEC* %s : %s", playerName, sArgs);
 			}
-			else
+			else if (GetClientTeam(i) != clientTeam) // Dead players can't chat to the other team.
 			{
 				PrintToChat(i, "\x07a93f29*DEAD* %s : \x07ffffff%s", playerName, sArgs);
 			}

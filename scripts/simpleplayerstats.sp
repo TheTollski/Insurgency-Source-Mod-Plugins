@@ -4,7 +4,7 @@
 #pragma semicolon 1
 #pragma newdecls required
 
-#define PLUGIN_VERSION "1.06"
+#define PLUGIN_VERSION "1.07"
 
 StringMap _authIdDisconnectTimestampMap;
 Database _database;
@@ -26,6 +26,7 @@ public Plugin myinfo =
 };
 
 // TODO:
+// Show rank in allstats
 // Get ranks from config file (disable rank system if file empty)
 
 //
@@ -349,14 +350,6 @@ public void Event_ControlpointCaptured(Event event, const char[] name, bool dont
 	{
 		if (_controlPointsThatPlayersAreTouching[i] == cp && team == GetClientTeam(i) && !IsFakeClient(i))
 		{
-			char playerName[64];
-			GetClientName(i, playerName, sizeof(playerName));
-			PrintToConsoleAll("Debug: %s helped capture a control point.", playerName);
-			if (StrEqual(playerName, "Tollski", true))
-			{
-				PrintToChat(i, "\x05You helped capture a control point.");
-			}
-
 			char authId[35];
 			GetClientAuthId(i, AuthId_Steam2, authId, sizeof(authId));
 
@@ -413,9 +406,6 @@ public void Event_FlagCaptured(Event event, const char[] name, bool dontBroadcas
 		return;
 	}
 
-	char playerName[64];
-	GetClientName(client, playerName, sizeof(playerName));
-
 	char authId[35];
 	GetClientAuthId(client, AuthId_Steam2, authId, sizeof(authId));
 
@@ -436,9 +426,6 @@ public void Event_FlagPickup(Event event, const char[] name, bool dontBroadcast)
 	{
 		return;
 	}
-
-	char playerName[64];
-	GetClientName(client, playerName, sizeof(playerName));
 
 	char authId[35];
 	GetClientAuthId(client, AuthId_Steam2, authId, sizeof(authId));
@@ -486,9 +473,6 @@ public void Event_ObjectDestroyed(Event event, const char[] name, bool dontBroad
 	{
 		return;
 	}
-
-	char playerName[64];
-	GetClientName(attackerClient, playerName, sizeof(playerName));
 
 	char authId[35];
 	GetClientAuthId(attackerClient, AuthId_Steam2, authId, sizeof(authId));
@@ -743,7 +727,7 @@ public void SqlQueryCallback_Command_AllStats1(Handle database, Handle handle, c
 		return;
 	}
 
-	ReplyToCommand(client, "\x05PlayerName      | FirstConn  | LastConn   | TotConns | PlayTime  | EBKills  | EPKills  | DeathsEB | DeathsEP | Suicides | DeathsOther | Objectives");
+	ReplyToCommand(client, "\x05PlayerName           | FirstConn  | LastConn   | TotConns | PlayTime  | EBKills  | EPKills  | DeathsEB | DeathsEP | Suicides | DeathsOther | Objectives");
 	while (SQL_FetchRow(handle))
 	{
 		char playerName[21]; // Cut off anything past 20 characters in a player's name.
@@ -771,7 +755,7 @@ public void SqlQueryCallback_Command_AllStats1(Handle database, Handle handle, c
 
 		ReplyToCommand(
 			client,
-			"\x05%15s | %10s | %10s | %8d | %8.1fh | %8d | %8d | %8d | %8d | %8d | %11d | %10d",
+			"\x05%20s | %10s | %10s | %8d | %8.1fh | %8d | %8d | %8d | %8d | %8d | %11d | %10d",
 			playerName, firstConnectionDate, lastConnectionDate,
 			connectionCount, ((activeTime * 100) / 3600) / float(100),
 			enemyBotKills, enemyPlayerKills,
@@ -896,9 +880,6 @@ public void SqlQueryCallback_EnsurePlayerDatabaseRecordsExist1(Handle database, 
 	char authId[35];
 	GetClientAuthId(client, AuthId_Steam2, authId, sizeof(authId));
 
-	char name[64];
-	GetClientName(client, name, sizeof(name));
-
 	int timestamp = GetTime();
 
 	if (SQL_GetRowCount(handle) == 0)
@@ -907,12 +888,12 @@ public void SqlQueryCallback_EnsurePlayerDatabaseRecordsExist1(Handle database, 
 		SQL_FormatQuery(
 			_database, queryString, sizeof(queryString),
 			"INSERT INTO sps_players (AuthId, RecordType, PlayerName, FirstConnectionTimestamp, LastConnectionTimestamp, ConnectionCount, ConnectedTime, ActiveTime, EnemyBotKills, EnemyPlayerKills, TeamKills, DeathsToEnemyBots, DeathsToEnemyPlayers, DeathsToSelf, DeathsToTeam, DeathsToOther, ControlPointsCaptured, FlagsCaptured, FlagsPickedUp, ObjectivesDestroyed) VALUES ('%s', '%s', '%s', %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d)",
-			authId, recordType, name, timestamp, timestamp, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+			authId, recordType, _playerNames[client], timestamp, timestamp, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 		SQL_TQuery(_database, SqlQueryCallback_Default, queryString);
 
 		if (StrEqual(recordType, "Total"))
 		{
-			PrintToChat(client, "\x05Welcome %s, this is your first time here!", name);
+			PrintToChat(client, "\x05Welcome %s, this is your first time here!", _playerNames[client]);
 		}
 
 		return;
@@ -928,12 +909,12 @@ public void SqlQueryCallback_EnsurePlayerDatabaseRecordsExist1(Handle database, 
 	SQL_FormatQuery(
 		_database, queryString, sizeof(queryString),
 		"UPDATE sps_players SET LastConnectionTimestamp = %d, ConnectionCount = ConnectionCount + 1, PlayerName = '%s' WHERE AuthId = '%s' AND RecordType = '%s'",
-		timestamp, name, authId, recordType);
+		timestamp, _playerNames[client], authId, recordType);
 	SQL_TQuery(_database, SqlQueryCallback_Default, queryString);
 
 	if (StrEqual(recordType, "Total"))
 	{
-		PrintToChat(client, "\x05Welcome %s, you have played on this server %d times for %.2f hours (%.2f hours connected).", name, connectionCount + 1, activeTime / 3600.0, connectedTime / 3600.0);
+		PrintToChat(client, "\x05Welcome %s, you have played on this server %d times for %.2f hours (%.2f hours connected).", _playerNames[client], connectionCount + 1, activeTime / 3600.0, connectedTime / 3600.0);
 	}
 }
 
@@ -1076,7 +1057,7 @@ public void SqlQueryCallback_Command_UpdateClientRank1(Handle database, Handle h
 
 	if (_playerRankIds[client] > 0)
 	{
-		PrintToChatAll("\x07f5bf03%s has been promoted to %s (%s)!", _playerNames[client], rankLongName, rankShortName);
+		PrintToChatAll("\x07f5bf03%s has been promoted to %s [%s]!", _playerNames[client], rankLongName, rankShortName);
 	}
 
 	_playerRankIds[client] = rankId;

@@ -4,14 +4,15 @@
 #pragma semicolon 1
 #pragma newdecls required
 
-#define PLUGIN_VERSION "1.05"
+#define PLUGIN_VERSION "1.06"
 
 StringMap _authIdDisconnectTimestampMap;
 Database _database;
 int _controlPointsThatPlayersAreTouching[MAXPLAYERS + 1] = { -1, ... };
+bool _isChangingName[MAXPLAYERS + 1] = { false, ... };
 int _lastActiveTimeSavedTimestamps[MAXPLAYERS + 1] = { 0, ... };
 int _lastConnectedTimeSavedTimestamps[MAXPLAYERS + 1] = { 0, ... };
-char _playerNames[MAXPLAYERS + 1][64];
+char _playerNames[MAXPLAYERS + 1][MAX_NAME_LENGTH];
 int _playerRankIds[MAXPLAYERS + 1] = { -1, ... };
 int _pluginStartTimestamp;
 
@@ -25,7 +26,7 @@ public Plugin myinfo =
 };
 
 // TODO:
-// Add setting to disable showing ranks.
+// Get ranks from config file (disable rank system if file empty)
 
 //
 // Forwards
@@ -43,6 +44,7 @@ public void OnPluginStart()
 	HookEvent("round_end", Event_RoundEnd);
 	HookEvent("round_start", Event_RoundStart);
 	HookEvent("object_destroyed", Event_ObjectDestroyed);
+	HookEvent("player_changename", Event_PlayerChangeName, EventHookMode_Pre);
 	HookEvent("player_death", Event_PlayerDeath);
 	HookEvent("player_team", Event_PlayerTeam);
 
@@ -75,6 +77,7 @@ public void OnClientDisconnect(int client)
 
 	_authIdDisconnectTimestampMap.SetValue(authId, timestamp, true);
 	_controlPointsThatPlayersAreTouching[client] = -1;
+	_isChangingName[client] = false;
 	_lastActiveTimeSavedTimestamps[client] = 0;
 	_lastConnectedTimeSavedTimestamps[client] = 0;
 	_playerNames[client] = "";
@@ -89,7 +92,7 @@ public void OnClientPostAdminCheck(int client)
 	}
 
 	_lastConnectedTimeSavedTimestamps[client] = GetTime();
-	GetClientName(client, _playerNames[client], 64);
+	GetClientName(client, _playerNames[client], MAX_NAME_LENGTH);
 	
 	UpdateClientRank(client);
 
@@ -412,11 +415,6 @@ public void Event_FlagCaptured(Event event, const char[] name, bool dontBroadcas
 
 	char playerName[64];
 	GetClientName(client, playerName, sizeof(playerName));
-	PrintToConsoleAll("Debug: %s captured the flag.", playerName);
-	if (StrEqual(playerName, "Tollski", true))
-	{
-		PrintToChat(client, "\x05You captured the flag.");
-	}
 
 	char authId[35];
 	GetClientAuthId(client, AuthId_Steam2, authId, sizeof(authId));
@@ -441,11 +439,6 @@ public void Event_FlagPickup(Event event, const char[] name, bool dontBroadcast)
 
 	char playerName[64];
 	GetClientName(client, playerName, sizeof(playerName));
-	PrintToConsoleAll("Debug: %s picked up the flag.", playerName);
-	if (StrEqual(playerName, "Tollski", true))
-	{
-		PrintToChat(client, "\x05You picked up the flag.");
-	}
 
 	char authId[35];
 	GetClientAuthId(client, AuthId_Steam2, authId, sizeof(authId));
@@ -496,11 +489,6 @@ public void Event_ObjectDestroyed(Event event, const char[] name, bool dontBroad
 
 	char playerName[64];
 	GetClientName(attackerClient, playerName, sizeof(playerName));
-	PrintToConsoleAll("Debug: %s destroyed an objective.", playerName);
-	if (StrEqual(playerName, "Tollski", true))
-	{
-		PrintToChat(attackerClient, "\x05You destroyed an objective.");
-	}
 
 	char authId[35];
 	GetClientAuthId(attackerClient, AuthId_Steam2, authId, sizeof(authId));
@@ -508,6 +496,19 @@ public void Event_ObjectDestroyed(Event event, const char[] name, bool dontBroad
 	char queryString[256];
 	SQL_FormatQuery(_database, queryString, sizeof(queryString), "UPDATE sps_players SET ObjectivesDestroyed = ObjectivesDestroyed + 1 WHERE AuthId = '%s'", authId);
 	SQL_TQuery(_database, SqlQueryCallback_Default, queryString);
+}
+
+public Action Event_PlayerChangeName(Event event, const char[] name, bool dontBroadcast)
+{
+	int userid = event.GetInt("userid");
+	int client = GetClientOfUserId(userid);
+
+	if (_isChangingName[client])
+	{
+		return Plugin_Handled;
+	}
+	
+	return Plugin_Continue;
 }
 
 public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast)
@@ -911,7 +912,7 @@ public void SqlQueryCallback_EnsurePlayerDatabaseRecordsExist1(Handle database, 
 
 		if (StrEqual(recordType, "Total"))
 		{
-			PrintToChatAll("\x05Welcome %s, this is your first time here!", name);
+			PrintToChat(client, "\x05Welcome %s, this is your first time here!", name);
 		}
 
 		return;
@@ -932,7 +933,7 @@ public void SqlQueryCallback_EnsurePlayerDatabaseRecordsExist1(Handle database, 
 
 	if (StrEqual(recordType, "Total"))
 	{
-		PrintToChatAll("\x05Welcome %s, you have played on this server %d times for %dh%dm (%dh%dm active).", name, connectionCount + 1, connectedTime / 3600, connectedTime % 3600 / 60, activeTime / 3600, activeTime % 3600 / 60);
+		PrintToChat(client, "\x05Welcome %s, you have played on this server %d times for %.2f hours (%.2f hours connected).", name, connectionCount + 1, activeTime / 3600.0, connectedTime / 3600.0);
 	}
 }
 
@@ -987,6 +988,7 @@ public void SqlQueryCallback_Command_UpdateClientRank1(Handle database, Handle h
 
 	SQL_FetchRow(handle);
 
+	int connectedTime = SQL_FetchInt(handle, 6);
 	int activeTime = SQL_FetchInt(handle, 7);
 	int enemyBotKills = SQL_FetchInt(handle, 8);
 	int enemyPlayerKills = SQL_FetchInt(handle, 9);
@@ -995,7 +997,8 @@ public void SqlQueryCallback_Command_UpdateClientRank1(Handle database, Handle h
 	int flagsPickedUp = SQL_FetchInt(handle, 18);
 	// int objectivesDestroyed = SQL_FetchInt(handle, 19);
 
-	int points = activeTime / 6 // 100 points per 10 minutes actively played
+	int points = connectedTime / 60 // 1 point per minute connected
+		+ activeTime / 6 // 10 points per minute actively played
 		+ enemyBotKills * 10 // 10 points per bot kill
 		+ enemyPlayerKills * 100 // 100 points per player kill
 		+ controlPointsCaptured * 100 // 100 points per control point captured
@@ -1080,7 +1083,9 @@ public void SqlQueryCallback_Command_UpdateClientRank1(Handle database, Handle h
 
 	char strNickname[64];
 	Format(strNickname, sizeof(strNickname), "[%s] %s", rankShortName, _playerNames[client]);
+	_isChangingName[client] = true;
 	SetClientName(client, strNickname);
+	_isChangingName[client] = false;
 }
 
 public void UpdateClientActiveAndConnectedTimes(int client)
@@ -1114,6 +1119,11 @@ public void UpdateClientActiveAndConnectedTimes(int client)
 
 public void UpdateClientRank(int client)
 {
+	if (strlen(_playerNames[client]) == 0)
+	{
+		return;
+	}
+
 	char authId[35];
 	GetClientAuthId(client, AuthId_Steam2, authId, sizeof(authId));
 

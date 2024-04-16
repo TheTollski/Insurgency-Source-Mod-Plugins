@@ -4,13 +4,15 @@
 #pragma semicolon 1
 #pragma newdecls required
 
-#define PLUGIN_VERSION "1.04"
+#define PLUGIN_VERSION "1.05"
 
 StringMap _authIdDisconnectTimestampMap;
 Database _database;
 int _controlPointsThatPlayersAreTouching[MAXPLAYERS + 1] = { -1, ... };
 int _lastActiveTimeSavedTimestamps[MAXPLAYERS + 1] = { 0, ... };
 int _lastConnectedTimeSavedTimestamps[MAXPLAYERS + 1] = { 0, ... };
+char _playerNames[MAXPLAYERS + 1][64];
+int _playerRankIds[MAXPLAYERS + 1] = { -1, ... };
 int _pluginStartTimestamp;
 
 public Plugin myinfo =
@@ -21,6 +23,9 @@ public Plugin myinfo =
 	version = PLUGIN_VERSION,
 	url = "Your website URL/AlliedModders profile URL"
 };
+
+// TODO:
+// Add setting to disable showing ranks.
 
 //
 // Forwards
@@ -35,6 +40,7 @@ public void OnPluginStart()
 	HookEvent("controlpoint_starttouch", Event_ControlpointStartTouch);
 	HookEvent("flag_captured", Event_FlagCaptured);
 	HookEvent("flag_pickup", Event_FlagPickup);
+	HookEvent("round_end", Event_RoundEnd);
 	HookEvent("round_start", Event_RoundStart);
 	HookEvent("object_destroyed", Event_ObjectDestroyed);
 	HookEvent("player_death", Event_PlayerDeath);
@@ -71,6 +77,8 @@ public void OnClientDisconnect(int client)
 	_controlPointsThatPlayersAreTouching[client] = -1;
 	_lastActiveTimeSavedTimestamps[client] = 0;
 	_lastConnectedTimeSavedTimestamps[client] = 0;
+	_playerNames[client] = "";
+	_playerRankIds[client] = -1;
 }
 
 public void OnClientPostAdminCheck(int client)
@@ -79,8 +87,11 @@ public void OnClientPostAdminCheck(int client)
 	{
 		return;
 	}
-	
+
 	_lastConnectedTimeSavedTimestamps[client] = GetTime();
+	GetClientName(client, _playerNames[client], 64);
+	
+	UpdateClientRank(client);
 
 	char authId[35];
 	GetClientAuthId(client, AuthId_Steam2, authId, sizeof(authId));
@@ -106,12 +117,6 @@ public void OnMapStart()
 
 public Action Command_AllStats(int client, int args)
 {
-	if (args > 3)
-	{
-		ReplyToCommand(client, "\x05[Simple Player Stats] Usage: sm_allstats [Type('Total'|'Custom'|'Startup')] [SortColumn('ActiveTime'|'DeathsToEnemyPlayers'|'EnemyPlayerKills'|'LastConnectionTimestamp')] [Page]");
-		return Plugin_Handled;
-	}
-
 	char arg1[32];
 	if (args >= 1)
 	{
@@ -142,9 +147,10 @@ public Action Command_AllStats(int client, int args)
 		arg3 = "1";
 	}
 
-	if (args == 0)
+	if (args != 3)
 	{
-		ReplyToCommand(client, "\x05[Simple Player Stats] Using defaults: sm_allstats Total ActiveTime 1");
+		ReplyToCommand(client, "\x05[Simple Player Stats] Usage: sm_allstats [Type('Total'|'Custom'|'Startup')] [SortColumn('ActiveTime'|'DeathsToEnemyPlayers'|'EnemyPlayerKills'|'LastConnectionTimestamp')] [Page]");
+		ReplyToCommand(client, "\x05[Simple Player Stats] Using: sm_allstats %s %s %s", arg1, arg2, arg3);
 	}
 
 	char recordType[32];
@@ -447,6 +453,17 @@ public void Event_FlagPickup(Event event, const char[] name, bool dontBroadcast)
 	char queryString[256];
 	SQL_FormatQuery(_database, queryString, sizeof(queryString), "UPDATE sps_players SET FlagsPickedUp = FlagsPickedUp + 1 WHERE AuthId = '%s'", authId);
 	SQL_TQuery(_database, SqlQueryCallback_Default, queryString);
+}
+
+public void Event_RoundEnd(Event event, const char[] name, bool dontBroadcast)
+{
+	for (int i = 1; i < MaxClients + 1; i++)
+	{
+		if (IsClientConnected(i) && IsClientAuthorized(i) && !IsFakeClient(i))
+		{
+			UpdateClientRank(i);
+		}
+	}
 }
 
 public void Event_RoundStart(Event event, const char[] name, bool dontBroadcast)
@@ -953,6 +970,119 @@ public void SqlQueryCallback_ResetStartupStats1(Handle database, Handle handle, 
 	}
 }
 
+public void SqlQueryCallback_Command_UpdateClientRank1(Handle database, Handle handle, const char[] sError, int client)
+{
+	if (!handle)
+	{
+		ThrowError("SQL query error in SqlQueryCallback_Command_UpdateClientRank1: %d, '%s'", client, sError);
+	}
+
+	char authId[35];
+	GetClientAuthId(client, AuthId_Steam2, authId, sizeof(authId));
+
+	if (SQL_GetRowCount(handle) == 0)
+	{
+		ThrowError("No player record was found for your AuthId '%s'", authId);
+	}
+
+	SQL_FetchRow(handle);
+
+	int activeTime = SQL_FetchInt(handle, 7);
+	int enemyBotKills = SQL_FetchInt(handle, 8);
+	int enemyPlayerKills = SQL_FetchInt(handle, 9);
+	int controlPointsCaptured = SQL_FetchInt(handle, 16);
+	int flagsCaptured = SQL_FetchInt(handle, 17);
+	int flagsPickedUp = SQL_FetchInt(handle, 18);
+	// int objectivesDestroyed = SQL_FetchInt(handle, 19);
+
+	int points = activeTime / 6 // 100 points per 10 minutes actively played
+		+ enemyBotKills * 10 // 10 points per bot kill
+		+ enemyPlayerKills * 100 // 100 points per player kill
+		+ controlPointsCaptured * 100 // 100 points per control point captured
+		+ flagsCaptured * 300 // 300 points per flag captured
+		+ flagsPickedUp * 100; // 100 points per flag picked up
+
+	int rankId = -1;
+	char rankLongName[32];
+	char rankShortName[5];
+	if (points > 1010000)
+	{
+		rankId = 10;
+		rankShortName = "ADM";
+		rankLongName = "Admiral";
+	}
+	else if (points > 499952)
+	{
+		rankId = 9;
+		rankShortName = "VADM";
+		rankLongName = "Vice Admiral";
+	}
+	else if (points > 244928)
+	{
+		rankId = 8;
+		rankShortName = "RADM";
+		rankLongName = "Rear Admiral Upper Half";
+	}
+	else if (points > 117416)
+	{
+		rankId = 7;
+		rankShortName = "RDML";
+		rankLongName = "Rear Admiral Lower Half";
+	}
+	else if (points > 53660)
+	{
+		rankId = 6;
+		rankShortName = "CAPT";
+		rankLongName = "Captain";
+	}
+	else if (points > 23300)
+	{
+		rankId = 5;
+		rankShortName = "CDR";
+		rankLongName = "Commander";
+	}
+	else if (points > 9500)
+	{
+		rankId = 4;
+		rankShortName = "LCDR";
+		rankLongName = "Lieutenant Commander";
+	}
+	else if (points > 3500)
+	{
+		rankId = 3;
+		rankShortName = "LT";
+		rankLongName = "Lieutenant";
+	}
+	else if (points > 1000)
+	{
+		rankId = 2;
+		rankShortName = "LTJG";
+		rankLongName = "Lieutenant Junior Grade";
+	}
+	else
+	{
+		rankId = 1;
+		rankShortName = "ENS";
+		rankLongName = "Ensign";
+	}
+
+	if (_playerRankIds[client] == rankId)
+	{
+		return;
+	}
+
+	if (_playerRankIds[client] > 0)
+	{
+		PrintToChatAll("\x07f5bf03%s has been promoted to %s (%s)!", _playerNames[client], rankLongName, rankShortName);
+	}
+
+	_playerRankIds[client] = rankId;
+
+	char strNickname[64];
+	Format(strNickname, sizeof(strNickname), "[%s] %s", rankShortName, _playerNames[client]);
+	SetClientName(client, strNickname);
+}
+
 public void UpdateClientActiveAndConnectedTimes(int client)
 {
 	int timestamp = GetTime();
@@ -980,4 +1110,14 @@ public void UpdateClientActiveAndConnectedTimes(int client)
 		"UPDATE sps_players SET ActiveTime = ActiveTime + %d, ConnectedTime = ConnectedTime + %d WHERE AuthId = '%s'",
 		additionalActiveTime, additionalConnectedTime, authId);
 	SQL_TQuery(_database, SqlQueryCallback_Default, queryString);
+}
+
+public void UpdateClientRank(int client)
+{
+	char authId[35];
+	GetClientAuthId(client, AuthId_Steam2, authId, sizeof(authId));
+
+	char queryString[256];
+	SQL_FormatQuery(_database, queryString, sizeof(queryString), "SELECT * FROM sps_players WHERE AuthId = '%s' AND RecordType = 'Total'", authId);
+	SQL_TQuery(_database, SqlQueryCallback_Command_UpdateClientRank1, queryString, client);
 }

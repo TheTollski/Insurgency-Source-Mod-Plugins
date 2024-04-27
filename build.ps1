@@ -1,3 +1,3 @@
-param( [string]$fileName )
+param( [string]$filePath )
 
-& $env:USERPROFILE\sourcemodAPI\addons\sourcemod\scripting\spcomp scripts\$fileName
+& $env:USERPROFILE\sourcemodAPI\addons\sourcemod\scripting\spcomp $filePath

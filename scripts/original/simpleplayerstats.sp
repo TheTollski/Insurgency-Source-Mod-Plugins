@@ -15,7 +15,7 @@ int _lastConnectedTimeSavedTimestamps[MAXPLAYERS + 1] = { 0, ... };
 char _playerNames[MAXPLAYERS + 1][MAX_NAME_LENGTH];
 int _playerRankIds[MAXPLAYERS + 1] = { -1, ... };
 int _pluginStartTimestamp;
-char _postDbCallOutput[64][1024];
+char _postDbCallOutput[101][1024];
 int _postDbCallOutputCount = -1;
 
 public Plugin myinfo =
@@ -28,13 +28,12 @@ public Plugin myinfo =
 };
 
 // TODO:
-// Leaderboard support
-// cache output default false
 // Track monthly stats
 // Use army ranks?
 // Show rank in allstats
 // Get ranks from config file (disable rank system if file empty)
 // Track MVP stats
+// Track accuracy stats
 // Clan support
 
 //
@@ -62,6 +61,7 @@ public void OnPluginStart()
 	RegAdminCmd("sm_getcachedoutput", Command_GetCachedOutput, ADMFLAG_GENERIC, "Prints the post-DB call cached output from the last command.");
 	RegAdminCmd("sm_reset_stats_custom", Command_ResetStatsCustom, ADMFLAG_GENERIC, "Resets stats of all players for the custom time range.");
 
+	RegConsoleCmd("sm_leaderboard", Command_Leaderboard, "Prints the leaderboard.");
 	RegConsoleCmd("sm_mystats", Command_MyStats, "Prints your stats.");
 
 	ConnectToDatabase();
@@ -160,10 +160,20 @@ public Action Command_AllStats(int client, int args)
 		arg3 = "1";
 	}
 
+	char arg4[32];
+	if (args >= 4)
+	{
+		GetCmdArg(4, arg4, sizeof(arg4));
+	}
+	else
+	{
+		arg4 = "false";
+	}
+
 	if (args != 3)
 	{
-		ReplyToCommand(client, "\x05[Simple Player Stats] Usage: sm_allstats [Type('Total'|'Custom'|'Startup')] [SortColumn('ActiveTime'|'DeathsToEnemyPlayers'|'EnemyPlayerKills'|'LastConnection'|'Rank')] [Page]");
-		ReplyToCommand(client, "\x05[Simple Player Stats] Using: sm_allstats %s %s %s", arg1, arg2, arg3);
+		ReplyToCommand(client, "\x05[Simple Player Stats] Usage: sm_allstats [Type('Total'|'Custom'|'Startup')] [SortColumn('ActiveTime'|'DeathsToEnemyPlayers'|'EnemyPlayerKills'|'LastConnection'|'Rank')] [Page] [CacheOutput('true'|'false')]");
+		ReplyToCommand(client, "\x05[Simple Player Stats] Using: sm_allstats %s %s %s %s", arg1, arg2, arg3, arg4);
 	}
 
 	char recordType[32];
@@ -216,6 +226,8 @@ public Action Command_AllStats(int client, int args)
 	int page = StringToInt(arg3);
 	int offset = (page - 1) * pageSize;
 
+	bool cacheOutput = StrEqual(arg4, "true", false);
+
 	ReplyToCommand(client, "\x05[Simple Player Stats] %s Stats are being printed in the console.", recordType);
 	if (StrEqual(recordType, "Startup"))
 	{
@@ -225,12 +237,16 @@ public Action Command_AllStats(int client, int args)
 		ReplyToCommand(client, "\x05[Simple Player Stats] Last startup: %s", dateTime);
 	}
 
+	DataPack pack = new DataPack();
+	pack.WriteCell(client);
+	pack.WriteCell(cacheOutput);
+
 	char queryString[256];
 	SQL_FormatQuery(
 		_database, queryString, sizeof(queryString),
 		"SELECT * FROM sps_players WHERE RecordType = '%s' ORDER BY %s DESC LIMIT %d OFFSET %d",
 		recordType, orderByColumn, pageSize, offset);
-	SQL_TQuery(_database, SqlQueryCallback_Command_AllStats1, queryString, client);
+	SQL_TQuery(_database, SqlQueryCallback_Command_AllStats1, queryString, pack);
 	return Plugin_Handled;
 }
 
@@ -271,11 +287,97 @@ public Action Command_AuditLogs(int client, int args)
 
 public Action Command_GetCachedOutput(int client, int args)
 {
-	for (int i = 1; i < _postDbCallOutputCount; i++)
+	char arg1[32];
+	if (args >= 1)
+	{
+		GetCmdArg(1, arg1, sizeof(arg1));
+	}
+	else
+	{
+		arg1 = "0";
+	}
+
+	char arg2[32];
+	if (args >= 2)
+	{
+		GetCmdArg(2, arg2, sizeof(arg2));
+	}
+	else
+	{
+		arg2 = "100";
+	}
+
+	if (args != 2)
+	{
+		ReplyToCommand(client, "\x05[Simple Player Stats] Usage: sm_getcachedoutput [Start] [End]");
+		ReplyToCommand(client, "\x05[Simple Player Stats] Using: sm_getcachedoutput %s %s", arg1, arg2);
+	}
+
+	int start = StringToInt(arg1);
+	int end = StringToInt(arg2);
+
+	if (start > end)
+	{
+		ReplyToCommand(client, "\x07[Simple Player Stats] End must be greater than or equal to start.", arg2);
+		return Plugin_Handled;
+	}
+	if (start < 0)
+	{
+		ReplyToCommand(client, "\x07[Simple Player Stats] Start must be greater than or equal to 0.", arg2);
+		return Plugin_Handled;
+	}
+	if (end > 100)
+	{
+		ReplyToCommand(client, "\x07[Simple Player Stats] End must be less than or equal to 100.", arg2);
+		return Plugin_Handled;
+	}
+
+	for (int i = start; i <= _postDbCallOutputCount && i <= end; i++)
 	{
 		ReplyToCommand(client, _postDbCallOutput[i]);
 	}
 
+	return Plugin_Handled;
+}
+
+public Action Command_Leaderboard(int client, int args)
+{
+	char arg1[32];
+	if (args >= 1)
+	{
+		GetCmdArg(1, arg1, sizeof(arg1));
+	}
+	else
+	{
+		arg1 = "false";
+	}
+
+	if (args != 1)
+	{
+		ReplyToCommand(client, "\x05[Simple Player Stats] Usage: sm_leaderboard [CacheOutput('true'|'false')]");
+		ReplyToCommand(client, "\x05[Simple Player Stats] Using: sm_leaderboard %s", arg1);
+	}
+
+	bool isAdmin = CheckCommandAccess(client, "adminaccesscheckKick", ADMFLAG_KICK);
+
+	bool cacheOutput = StrEqual(arg1, "true", false);
+	if (cacheOutput && !isAdmin)
+	{
+		ReplyToCommand(client, "\x05[Simple Player Stats] Only admins can set CacheOutput to true.", arg1);
+		return Plugin_Handled;
+	}
+
+	ReplyToCommand(client, "\x05[Simple Player Stats] The leaderboard is being printed in the console.");
+
+	DataPack pack = new DataPack();
+	pack.WriteCell(client);
+	pack.WriteCell(cacheOutput);
+
+	char queryString[256];
+	SQL_FormatQuery(
+		_database, queryString, sizeof(queryString),
+		"SELECT * FROM sps_players WHERE RecordType = 'Total' ORDER BY RankPoints DESC LIMIT 99");
+	SQL_TQuery(_database, SqlQueryCallback_Command_Leaderboard1, queryString, pack);
 	return Plugin_Handled;
 }
 
@@ -808,8 +910,13 @@ public void ResetStartupStats()
 	SQL_TQuery(_database, SqlQueryCallback_ResetStartupStats1, queryString);
 }
 
-public void SqlQueryCallback_Command_AllStats1(Handle database, Handle handle, const char[] sError, int client)
+public void SqlQueryCallback_Command_AllStats1(Handle database, Handle handle, const char[] sError, DataPack inputPack)
 {
+	inputPack.Reset();
+	int client = inputPack.ReadCell();
+	bool cacheOutput = inputPack.ReadCell();
+	CloseHandle(inputPack);
+
 	if (!handle)
 	{
 		ThrowError("SQL query error in SqlQueryCallback_Command_AllStats1: %d, '%s'", client, sError);
@@ -821,8 +928,15 @@ public void SqlQueryCallback_Command_AllStats1(Handle database, Handle handle, c
 		return;
 	}
 
-	_postDbCallOutputCount = 1;
-	ReplyToCommand(client, "\x05PlayerName           | Rank | RnkPoints | FirstConn  | LastConn   | TotConn | PlayTime | EBKills  | EPKills  | DeathsEB | DeathsEP | Suicides | DeathsOth | Objectiv ");
+	char header[256] = "\x05PlayerName           | Rank | RnkPoints | FirstConn  | LastConn   | TotConn | PlayTime | EBKills  | EPKills  | DeathsEB | DeathsEP | Suicides | DeathsOt | Objectiv ";
+	ReplyToCommand(client, header);
+
+	if (cacheOutput)
+	{
+		_postDbCallOutput[0] = header;
+		_postDbCallOutputCount = 1;
+	}
+	
 	while (SQL_FetchRow(handle))
 	{
 		char playerName[21]; // Cut off anything past 20 characters in a player's name.
@@ -853,7 +967,8 @@ public void SqlQueryCallback_Command_AllStats1(Handle database, Handle handle, c
 		char rankShortName[5];
 		int rankId = GetRank(rankPoints, rankShortName, sizeof(rankShortName), rankLongName, sizeof(rankLongName));
 
-		Format(_postDbCallOutput[_postDbCallOutputCount], 1024, 
+		char output[1024];
+		Format(output, 1024, 
 			"\x05%20s | %4s | %9d | %10s | %10s | %7d | %7.1fh | %8d | %8d | %8d | %8d | %8d | %8d | %8d ",
 			playerName, rankShortName, rankPoints, firstConnectionDate, lastConnectionDate,
 			connectionCount, ((activeTime * 100) / 3600) / float(100),
@@ -861,9 +976,13 @@ public void SqlQueryCallback_Command_AllStats1(Handle database, Handle handle, c
 			deathsToEnemyBots, deathsToEnemyPlayers, deathsToSelf, deathsToOther,
 			controlPointsCaptured + flagsPickedUp + flagsCaptured + objectivesDestroyed);
 
-		ReplyToCommand(client, _postDbCallOutput[_postDbCallOutputCount]);
+		ReplyToCommand(client, output);
 
-		_postDbCallOutputCount++;
+		if (cacheOutput)
+		{
+			strcopy(_postDbCallOutput[_postDbCallOutputCount], 1024, output);
+			_postDbCallOutputCount++;
+		}
 	}
 }
 
@@ -891,6 +1010,71 @@ public void SqlQueryCallback_Command_AuditLogs1(Handle database, Handle handle, 
 		FormatTime(dateTime, sizeof(dateTime), "%F %R", timestamp);
 
 		ReplyToCommand(client, "\x05%16s | %s", dateTime, description);
+	}
+}
+
+public void SqlQueryCallback_Command_Leaderboard1(Handle database, Handle handle, const char[] sError, DataPack inputPack)
+{
+	inputPack.Reset();
+	int client = inputPack.ReadCell();
+	bool cacheOutput = inputPack.ReadCell();
+	CloseHandle(inputPack);
+
+	if (!handle)
+	{
+		ThrowError("SQL query error in SqlQueryCallback_Command_Leaderboard1: %d, '%s'", client, sError);
+	}
+
+	if (SQL_GetRowCount(handle) == 0)
+	{
+		ReplyToCommand(client, "\x07[Simple Player Stats] No rows found for selected query.");
+		return;
+	}
+
+	char header1[256] = "## | PlayerName                     | Rank | Rank (Full)                      | Bot Kills | Player Kills | Objectives";
+	ReplyToCommand(client, header1);
+	char header2[256] = "-- | ------------------------------ | ---- | -------------------------------- | --------- | ------------ | ----------";
+	ReplyToCommand(client, header2);
+
+	if (cacheOutput)
+	{
+		_postDbCallOutput[0] = header1;
+		_postDbCallOutput[1] = header2;
+		_postDbCallOutputCount = 2;
+	}
+
+	int count = 0;
+	while (SQL_FetchRow(handle))
+	{
+		char playerName[31]; // Cut off anything past 30 characters in a player's name.
+		SQL_FetchString(handle, 2, playerName, sizeof(playerName));
+		int enemyBotKills = SQL_FetchInt(handle, 8);
+		int enemyPlayerKills = SQL_FetchInt(handle, 9);
+		int controlPointsCaptured = SQL_FetchInt(handle, 16);
+		int flagsCaptured = SQL_FetchInt(handle, 17);
+		int flagsPickedUp = SQL_FetchInt(handle, 18);
+		int objectivesDestroyed = SQL_FetchInt(handle, 19);
+		int rankPoints = SQL_FetchInt(handle, 20);
+
+		char rankLongName[32];
+		char rankShortName[5];
+		int rankId = GetRank(rankPoints, rankShortName, sizeof(rankShortName), rankLongName, sizeof(rankLongName));
+
+		char output[1024];
+		Format(output, 1024, 
+			"%2d | %30s | %4s | %32s | %9d | %12d | %10d ",
+			count + 1, playerName, rankShortName, rankLongName,
+			enemyBotKills, enemyPlayerKills,
+			controlPointsCaptured + flagsPickedUp + flagsCaptured + objectivesDestroyed);
+
+		ReplyToCommand(client, output);
+		count++;
+
+		if (cacheOutput)
+		{
+			strcopy(_postDbCallOutput[_postDbCallOutputCount], 1024, output);
+			_postDbCallOutputCount++;
+		}
 	}
 }
 

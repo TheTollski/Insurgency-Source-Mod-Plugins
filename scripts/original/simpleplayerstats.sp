@@ -4,7 +4,7 @@
 #pragma semicolon 1
 #pragma newdecls required
 
-#define PLUGIN_VERSION "1.07"
+#define PLUGIN_VERSION "1.08"
 
 StringMap _authIdDisconnectTimestampMap;
 Database _database;
@@ -15,6 +15,8 @@ int _lastConnectedTimeSavedTimestamps[MAXPLAYERS + 1] = { 0, ... };
 char _playerNames[MAXPLAYERS + 1][MAX_NAME_LENGTH];
 int _playerRankIds[MAXPLAYERS + 1] = { -1, ... };
 int _pluginStartTimestamp;
+char _postDbCallOutput[64][1024];
+int _postDbCallOutputCount = -1;
 
 public Plugin myinfo =
 {
@@ -26,8 +28,14 @@ public Plugin myinfo =
 };
 
 // TODO:
+// Leaderboard support
+// cache output default false
+// Track monthly stats
+// Use army ranks?
 // Show rank in allstats
 // Get ranks from config file (disable rank system if file empty)
+// Track MVP stats
+// Clan support
 
 //
 // Forwards
@@ -51,6 +59,7 @@ public void OnPluginStart()
 
 	RegAdminCmd("sm_allstats", Command_AllStats, ADMFLAG_GENERIC, "Prints all player stats.");
 	RegAdminCmd("sm_auditlogs", Command_AuditLogs, ADMFLAG_GENERIC, "Prints audit logs.");
+	RegAdminCmd("sm_getcachedoutput", Command_GetCachedOutput, ADMFLAG_GENERIC, "Prints the post-DB call cached output from the last command.");
 	RegAdminCmd("sm_reset_stats_custom", Command_ResetStatsCustom, ADMFLAG_GENERIC, "Resets stats of all players for the custom time range.");
 
 	RegConsoleCmd("sm_mystats", Command_MyStats, "Prints your stats.");
@@ -138,7 +147,7 @@ public Action Command_AllStats(int client, int args)
 	}
 	else
 	{
-		arg2 = "ActiveTime";
+		arg2 = "Rank";
 	}
 
 	char arg3[32];
@@ -153,7 +162,7 @@ public Action Command_AllStats(int client, int args)
 
 	if (args != 3)
 	{
-		ReplyToCommand(client, "\x05[Simple Player Stats] Usage: sm_allstats [Type('Total'|'Custom'|'Startup')] [SortColumn('ActiveTime'|'DeathsToEnemyPlayers'|'EnemyPlayerKills'|'LastConnectionTimestamp')] [Page]");
+		ReplyToCommand(client, "\x05[Simple Player Stats] Usage: sm_allstats [Type('Total'|'Custom'|'Startup')] [SortColumn('ActiveTime'|'DeathsToEnemyPlayers'|'EnemyPlayerKills'|'LastConnection'|'Rank')] [Page]");
 		ReplyToCommand(client, "\x05[Simple Player Stats] Using: sm_allstats %s %s %s", arg1, arg2, arg3);
 	}
 
@@ -189,9 +198,13 @@ public Action Command_AllStats(int client, int args)
 	{
 		orderByColumn = "EnemyPlayerKills";
 	}
-	else if (StrEqual(arg2, "LastConnectionTimestamp", false))
+	else if (StrEqual(arg2, "LastConnection", false))
 	{
 		orderByColumn = "LastConnectionTimestamp";
+	}
+	else if (StrEqual(arg2, "Rank", false))
+	{
+		orderByColumn = "RankPoints";
 	}
 	else
 	{
@@ -253,6 +266,16 @@ public Action Command_AuditLogs(int client, int args)
 	char queryString[256];
 	SQL_FormatQuery(_database, queryString, sizeof(queryString), "SELECT * FROM sps_auditlogs ORDER BY Timestamp DESC LIMIT %d OFFSET %d", pageSize, offset);
 	SQL_TQuery(_database, SqlQueryCallback_Command_AuditLogs1, queryString, client);
+	return Plugin_Handled;
+}
+
+public Action Command_GetCachedOutput(int client, int args)
+{
+	for (int i = 1; i < _postDbCallOutputCount; i++)
+	{
+		ReplyToCommand(client, _postDbCallOutput[i]);
+	}
+
 	return Plugin_Handled;
 }
 
@@ -665,7 +688,7 @@ public void ConnectToDatabase()
 
 	SQL_TQuery(
 		_database, SqlQueryCallback_Default,
-		"CREATE TABLE IF NOT EXISTS sps_players (AuthId VARCHAR(35) NOT NULL, RecordType VARCHAR(16) NOT NULL, PlayerName VARCHAR(64) NOT NULL, FirstConnectionTimestamp INT(11) NOT NULL, LastConnectionTimestamp INT(11) NOT NULL, ConnectionCount INT(7) NOT NULL, ConnectedTime INT(9) NOT NULL, ActiveTime INT(9) NOT NULL, EnemyBotKills INT(8) NOT NULL, EnemyPlayerKills INT(8) NOT NULL, TeamKills INT(8) NOT NULL, DeathsToEnemyBots INT(8) NOT NULL, DeathsToEnemyPlayers INT(8) NOT NULL, DeathsToSelf INT(8) NOT NULL, DeathsToTeam INT(8) NOT NULL, DeathsToOther INT(8) NOT NULL, ControlPointsCaptured INT(8) NOT NULL, FlagsCaptured INT(8) NOT NULL, FlagsPickedUp INT(8) NOT NULL, ObjectivesDestroyed INT(8) NOT NULL, UNIQUE(AuthId, RecordType))");
+		"CREATE TABLE IF NOT EXISTS sps_players (AuthId VARCHAR(35) NOT NULL, RecordType VARCHAR(16) NOT NULL, PlayerName VARCHAR(64) NOT NULL, FirstConnectionTimestamp INT(11) NOT NULL, LastConnectionTimestamp INT(11) NOT NULL, ConnectionCount INT(7) NOT NULL, ConnectedTime INT(9) NOT NULL, ActiveTime INT(9) NOT NULL, EnemyBotKills INT(8) NOT NULL, EnemyPlayerKills INT(8) NOT NULL, TeamKills INT(8) NOT NULL, DeathsToEnemyBots INT(8) NOT NULL, DeathsToEnemyPlayers INT(8) NOT NULL, DeathsToSelf INT(8) NOT NULL, DeathsToTeam INT(8) NOT NULL, DeathsToOther INT(8) NOT NULL, ControlPointsCaptured INT(8) NOT NULL, FlagsCaptured INT(8) NOT NULL, FlagsPickedUp INT(8) NOT NULL, ObjectivesDestroyed INT(8) NOT NULL, RankPoints INT(9), UNIQUE(AuthId, RecordType))");
 }
 
 public void CreateAuditLog(const char[] logDescription)
@@ -676,6 +699,77 @@ public void CreateAuditLog(const char[] logDescription)
 		"INSERT INTO sps_auditlogs (Timestamp, Description) VALUES (%d, '%s')",
 		GetTime(), logDescription);
 	SQL_TQuery(_database, SqlQueryCallback_Default, queryString);
+}
+
+public int GetRank(int rankPoints, char[] rankShortName, int rankShortNameMaxLen, char[] rankLongName, int rankLongNameMaxLen)
+{
+	int rankId = -1;
+	char longName[32];
+	char shortName[5];
+	if (rankPoints > 1010000)
+	{
+		rankId = 10;
+		shortName = "ADM";
+		longName = "Admiral";
+	}
+	else if (rankPoints > 499952)
+	{
+		rankId = 9;
+		shortName = "VADM";
+		longName = "Vice Admiral";
+	}
+	else if (rankPoints > 244928)
+	{
+		rankId = 8;
+		shortName = "RADM";
+		longName = "Rear Admiral Upper Half";
+	}
+	else if (rankPoints > 117416)
+	{
+		rankId = 7;
+		shortName = "RDML";
+		longName = "Rear Admiral Lower Half";
+	}
+	else if (rankPoints > 53660)
+	{
+		rankId = 6;
+		shortName = "CAPT";
+		longName = "Captain";
+	}
+	else if (rankPoints > 23300)
+	{
+		rankId = 5;
+		shortName = "CDR";
+		longName = "Commander";
+	}
+	else if (rankPoints > 9500)
+	{
+		rankId = 4;
+		shortName = "LCDR";
+		longName = "Lieutenant Commander";
+	}
+	else if (rankPoints > 3500)
+	{
+		rankId = 3;
+		shortName = "LT";
+		longName = "Lieutenant";
+	}
+	else if (rankPoints > 1000)
+	{
+		rankId = 2;
+		shortName = "LTJG";
+		longName = "Lieutenant Junior Grade";
+	}
+	else
+	{
+		rankId = 1;
+		shortName = "ENS";
+		longName = "Ensign";
+	}
+
+	strcopy(rankShortName, rankShortNameMaxLen, shortName);
+	strcopy(rankLongName, rankLongNameMaxLen, longName);
+	return rankId;
 }
 
 public void EnsurePlayerAnyDatabaseRecordExists(int client, const char[] recordType)
@@ -727,7 +821,8 @@ public void SqlQueryCallback_Command_AllStats1(Handle database, Handle handle, c
 		return;
 	}
 
-	ReplyToCommand(client, "\x05PlayerName           | FirstConn  | LastConn   | TotConns | PlayTime  | EBKills  | EPKills  | DeathsEB | DeathsEP | Suicides | DeathsOther | Objectives");
+	_postDbCallOutputCount = 1;
+	ReplyToCommand(client, "\x05PlayerName           | Rank | RnkPoints | FirstConn  | LastConn   | TotConn | PlayTime | EBKills  | EPKills  | DeathsEB | DeathsEP | Suicides | DeathsOth | Objectiv ");
 	while (SQL_FetchRow(handle))
 	{
 		char playerName[21]; // Cut off anything past 20 characters in a player's name.
@@ -746,6 +841,7 @@ public void SqlQueryCallback_Command_AllStats1(Handle database, Handle handle, c
 		int flagsCaptured = SQL_FetchInt(handle, 17);
 		int flagsPickedUp = SQL_FetchInt(handle, 18);
 		int objectivesDestroyed = SQL_FetchInt(handle, 19);
+		int rankPoints = SQL_FetchInt(handle, 20);
 
 		char firstConnectionDate[16]; 
 		FormatTime(firstConnectionDate, sizeof(firstConnectionDate), "%F", firstConnectionTimestamp);
@@ -753,14 +849,21 @@ public void SqlQueryCallback_Command_AllStats1(Handle database, Handle handle, c
 		char lastConnectionDate[16]; 
 		FormatTime(lastConnectionDate, sizeof(lastConnectionDate), "%F", lastConnectionTimestamp);
 
-		ReplyToCommand(
-			client,
-			"\x05%20s | %10s | %10s | %8d | %8.1fh | %8d | %8d | %8d | %8d | %8d | %11d | %10d",
-			playerName, firstConnectionDate, lastConnectionDate,
+		char rankLongName[32];
+		char rankShortName[5];
+		int rankId = GetRank(rankPoints, rankShortName, sizeof(rankShortName), rankLongName, sizeof(rankLongName));
+
+		Format(_postDbCallOutput[_postDbCallOutputCount], 1024, 
+			"\x05%20s | %4s | %9d | %10s | %10s | %7d | %7.1fh | %8d | %8d | %8d | %8d | %8d | %8d | %8d ",
+			playerName, rankShortName, rankPoints, firstConnectionDate, lastConnectionDate,
 			connectionCount, ((activeTime * 100) / 3600) / float(100),
 			enemyBotKills, enemyPlayerKills,
 			deathsToEnemyBots, deathsToEnemyPlayers, deathsToSelf, deathsToOther,
 			controlPointsCaptured + flagsPickedUp + flagsCaptured + objectivesDestroyed);
+
+		ReplyToCommand(client, _postDbCallOutput[_postDbCallOutputCount]);
+
+		_postDbCallOutputCount++;
 	}
 }
 
@@ -986,69 +1089,17 @@ public void SqlQueryCallback_Command_UpdateClientRank1(Handle database, Handle h
 		+ flagsCaptured * 300 // 300 points per flag captured
 		+ flagsPickedUp * 100; // 100 points per flag picked up
 
-	int rankId = -1;
+	// TODO: This should be the first level call.
+	char queryString[256];
+	SQL_FormatQuery(
+		_database, queryString, sizeof(queryString),
+		"UPDATE sps_players SET RankPoints = ConnectedTime / 60 + ActiveTime / 6 + EnemyBotKills * 10 + EnemyPlayerKills * 100 + ControlPointsCaptured * 100 + FlagsCaptured * 300 + FlagsPickedUp * 100 WHERE AuthId = '%s'",
+		authId);
+	SQL_TQuery(_database, SqlQueryCallback_Default, queryString);
+
 	char rankLongName[32];
 	char rankShortName[5];
-	if (points > 1010000)
-	{
-		rankId = 10;
-		rankShortName = "ADM";
-		rankLongName = "Admiral";
-	}
-	else if (points > 499952)
-	{
-		rankId = 9;
-		rankShortName = "VADM";
-		rankLongName = "Vice Admiral";
-	}
-	else if (points > 244928)
-	{
-		rankId = 8;
-		rankShortName = "RADM";
-		rankLongName = "Rear Admiral Upper Half";
-	}
-	else if (points > 117416)
-	{
-		rankId = 7;
-		rankShortName = "RDML";
-		rankLongName = "Rear Admiral Lower Half";
-	}
-	else if (points > 53660)
-	{
-		rankId = 6;
-		rankShortName = "CAPT";
-		rankLongName = "Captain";
-	}
-	else if (points > 23300)
-	{
-		rankId = 5;
-		rankShortName = "CDR";
-		rankLongName = "Commander";
-	}
-	else if (points > 9500)
-	{
-		rankId = 4;
-		rankShortName = "LCDR";
-		rankLongName = "Lieutenant Commander";
-	}
-	else if (points > 3500)
-	{
-		rankId = 3;
-		rankShortName = "LT";
-		rankLongName = "Lieutenant";
-	}
-	else if (points > 1000)
-	{
-		rankId = 2;
-		rankShortName = "LTJG";
-		rankLongName = "Lieutenant Junior Grade";
-	}
-	else
-	{
-		rankId = 1;
-		rankShortName = "ENS";
-		rankLongName = "Ensign";
-	}
+	int rankId = GetRank(points, rankShortName, sizeof(rankShortName), rankLongName, sizeof(rankLongName));
 
 	if (_playerRankIds[client] == rankId)
 	{
@@ -1057,13 +1108,13 @@ public void SqlQueryCallback_Command_UpdateClientRank1(Handle database, Handle h
 
 	if (_playerRankIds[client] > 0)
 	{
-		PrintToChatAll("\x07f5bf03%s has been promoted to %s [%s]!", _playerNames[client], rankLongName, rankShortName);
+		PrintToChatAll("\x07f5bf03%s has been promoted to %s {%s}!", _playerNames[client], rankLongName, rankShortName);
 	}
 
 	_playerRankIds[client] = rankId;
 
 	char strNickname[64];
-	Format(strNickname, sizeof(strNickname), "[%s] %s", rankShortName, _playerNames[client]);
+	Format(strNickname, sizeof(strNickname), "{%s} %s", rankShortName, _playerNames[client]);
 	_isChangingName[client] = true;
 	SetClientName(client, strNickname);
 	_isChangingName[client] = false;
@@ -1107,6 +1158,8 @@ public void UpdateClientRank(int client)
 
 	char authId[35];
 	GetClientAuthId(client, AuthId_Steam2, authId, sizeof(authId));
+
+	// TODO: Change this call to UPDATE
 
 	char queryString[256];
 	SQL_FormatQuery(_database, queryString, sizeof(queryString), "SELECT * FROM sps_players WHERE AuthId = '%s' AND RecordType = 'Total'", authId);

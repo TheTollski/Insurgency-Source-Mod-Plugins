@@ -4,7 +4,7 @@
 #pragma semicolon 1
 #pragma newdecls required
 
-#define PLUGIN_VERSION "1.08"
+#define PLUGIN_VERSION "1.09"
 
 StringMap _authIdDisconnectTimestampMap;
 Database _database;
@@ -59,7 +59,7 @@ public void OnPluginStart()
 	RegAdminCmd("sm_allstats", Command_AllStats, ADMFLAG_GENERIC, "Prints all player stats.");
 	RegAdminCmd("sm_auditlogs", Command_AuditLogs, ADMFLAG_GENERIC, "Prints audit logs.");
 	RegAdminCmd("sm_getcachedoutput", Command_GetCachedOutput, ADMFLAG_GENERIC, "Prints the post-DB call cached output from the last command.");
-	RegAdminCmd("sm_reset_stats_custom", Command_ResetStatsCustom, ADMFLAG_GENERIC, "Resets stats of all players for the custom time range.");
+	RegAdminCmd("sm_resetstats", Command_ResetStats, ADMFLAG_GENERIC, "Resets the selected type of stats for all players.");
 
 	RegConsoleCmd("sm_leaderboard", Command_Leaderboard, "Prints the leaderboard.");
 	RegConsoleCmd("sm_mystats", Command_MyStats, "Prints your stats.");
@@ -117,6 +117,7 @@ public void OnClientPostAdminCheck(int client)
 	}
 
 	EnsurePlayerCustomDatabaseRecordExists(client);
+	EnsurePlayerRankedDatabaseRecordExists(client);
 	EnsurePlayerStartupDatabaseRecordExists(client);
 	EnsurePlayerTotalDatabaseRecordExists(client);
 }
@@ -137,7 +138,7 @@ public Action Command_AllStats(int client, int args)
 	}
 	else
 	{
-		arg1 = "Total";
+		arg1 = "Ranked";
 	}
 
 	char arg2[32];
@@ -170,9 +171,9 @@ public Action Command_AllStats(int client, int args)
 		arg4 = "false";
 	}
 
-	if (args != 3)
+	if (args != 4)
 	{
-		ReplyToCommand(client, "\x05[Simple Player Stats] Usage: sm_allstats [Type('Total'|'Custom'|'Startup')] [SortColumn('ActiveTime'|'DeathsToEnemyPlayers'|'EnemyPlayerKills'|'LastConnection'|'Rank')] [Page] [CacheOutput('true'|'false')]");
+		ReplyToCommand(client, "\x05[Simple Player Stats] Usage: sm_allstats [Type('Custom'|'Ranked'|'Startup'|'Total')] [SortColumn('ActiveTime'|'DeathsToEnemyPlayers'|'EnemyPlayerKills'|'LastConnection'|'Rank')] [Page] [CacheOutput('true'|'false')]");
 		ReplyToCommand(client, "\x05[Simple Player Stats] Using: sm_allstats %s %s %s %s", arg1, arg2, arg3, arg4);
 	}
 
@@ -180,6 +181,10 @@ public Action Command_AllStats(int client, int args)
 	if (StrEqual(arg1, "Custom", false))
 	{
 		recordType = "Custom";
+	}
+	else if (StrEqual(arg1, "Ranked", false))
+	{
+		recordType = "Ranked";
 	}
 	else if (StrEqual(arg1, "Startup", false))
 	{
@@ -252,12 +257,6 @@ public Action Command_AllStats(int client, int args)
 
 public Action Command_AuditLogs(int client, int args)
 {
-	if (args > 1)
-	{
-		ReplyToCommand(client, "\x05[Simple Player Stats] Usage: sm_auditlogs [Page]");
-		return Plugin_Handled;
-	}
-
 	char arg1[32];
 	if (args >= 1)
 	{
@@ -268,9 +267,10 @@ public Action Command_AuditLogs(int client, int args)
 		arg1 = "1";
 	}
 
-	if (args == 0)
+	if (args != 1)
 	{
-		ReplyToCommand(client, "\x05[Simple Player Stats] Using defaults: sm_auditlogs 1");
+		ReplyToCommand(client, "\x05[Simple Player Stats] Usage: sm_auditlogs [Page]");
+		ReplyToCommand(client, "\x05[Simple Player Stats] Using: sm_auditlogs %s", arg1);
 	}
 
 	int pageSize = 50;
@@ -376,18 +376,13 @@ public Action Command_Leaderboard(int client, int args)
 	char queryString[256];
 	SQL_FormatQuery(
 		_database, queryString, sizeof(queryString),
-		"SELECT * FROM sps_players WHERE RecordType = 'Total' ORDER BY RankPoints DESC LIMIT 99");
+		"SELECT * FROM sps_players WHERE RecordType = 'Ranked' ORDER BY RankPoints DESC LIMIT 99");
 	SQL_TQuery(_database, SqlQueryCallback_Command_Leaderboard1, queryString, pack);
 	return Plugin_Handled;
 }
 
 public Action Command_MyStats(int client, int args)
 {
-	if (args > 1) {
-		ReplyToCommand(client, "\x05[Simple Player Stats] Usage: sm_mystats [Type('Total'|'Custom'|'Startup')]");
-		return Plugin_Handled;
-	}
-
 	char arg1[32];
 	if (args >= 1)
 	{
@@ -395,13 +390,22 @@ public Action Command_MyStats(int client, int args)
 	}
 	else
 	{
-		arg1 = "Total";
+		arg1 = "Ranked";
+	}
+
+	if (args != 1) {
+		ReplyToCommand(client, "\x05[Simple Player Stats] Usage: sm_mystats [Type('Custom'|'Ranked'|'Startup'|'Total')]");
+		ReplyToCommand(client, "\x05[Simple Player Stats] Using: sm_mystats %s", arg1);
 	}
 
 	char recordType[32];
 	if (StrEqual(arg1, "Custom", false))
 	{
 		recordType = "Custom";
+	}
+	else if (StrEqual(arg1, "Ranked", false))
+	{
+		recordType = "Ranked";
 	}
 	else if (StrEqual(arg1, "Startup", false))
 	{
@@ -441,19 +445,47 @@ public Action Command_MyStats(int client, int args)
 	return Plugin_Handled;
 }
 
-public Action Command_ResetStatsCustom(int client, int args)
+public Action Command_ResetStats(int client, int args)
 {
-	if (args != 0)
+	char arg1[32];
+	if (args >= 1)
 	{
-		ReplyToCommand(client, "\x05[Simple Player Stats] Usage: sm_reset_stats_custom");
+		GetCmdArg(1, arg1, sizeof(arg1));
+	}
+	else
+	{
+		arg1 = "Custom";
+	}
+
+		if (args != 1)
+	{
+		ReplyToCommand(client, "\x05[Simple Player Stats] Usage: sm_resetstats [Type('Custom'|'Ranked')]");
+		ReplyToCommand(client, "\x05[Simple Player Stats] Using: sm_resetstats %s", arg1);
+	}
+
+	char recordType[32];
+	if (StrEqual(arg1, "Custom", false))
+	{
+		recordType = "Custom";
+	}
+	else if (StrEqual(arg1, "Ranked", false))
+	{
+		recordType = "Ranked";
+	}
+	else
+	{
+		ReplyToCommand(client, "\x07[Simple Player Stats] Invalid type '%s'.", arg1);
 		return Plugin_Handled;
 	}
 
-	ReplyToCommand(client, "\x05[Simple Player Stats] Resetting stats of all players for the custom time range.");
+	ReplyToCommand(client, "\x05[Simple Player Stats] Resetting stats of all players for the %s Type.", recordType);
+
+	DataPack pack = new DataPack();
+	pack.WriteString(recordType);
 
 	char queryString[256];
-	SQL_FormatQuery(_database, queryString, sizeof(queryString), "DELETE FROM sps_players WHERE RecordType = 'Custom'");
-	SQL_TQuery(_database, SqlQueryCallback_Command_ResetStatsCustom1, queryString);
+	SQL_FormatQuery(_database, queryString, sizeof(queryString), "DELETE FROM sps_players WHERE RecordType = '%s'", recordType);
+	SQL_TQuery(_database, SqlQueryCallback_Command_ResetStats1, queryString, pack);
 	return Plugin_Handled;
 }
 
@@ -893,6 +925,11 @@ public void EnsurePlayerCustomDatabaseRecordExists(int client)
 	EnsurePlayerAnyDatabaseRecordExists(client, "Custom");
 }
 
+public void EnsurePlayerRankedDatabaseRecordExists(int client)
+{
+	EnsurePlayerAnyDatabaseRecordExists(client, "Ranked");
+}
+
 public void EnsurePlayerStartupDatabaseRecordExists(int client)
 {
 	EnsurePlayerAnyDatabaseRecordExists(client, "Startup");
@@ -1120,19 +1157,34 @@ public void SqlQueryCallback_Command_MyStats1(Handle database, Handle handle, co
 		controlPointsCaptured + flagsPickedUp + flagsCaptured + objectivesDestroyed, controlPointsCaptured, flagsPickedUp, flagsCaptured, objectivesDestroyed);
 }
 
-public void SqlQueryCallback_Command_ResetStatsCustom1(Handle database, Handle handle, const char[] sError, any nothing)
+public void SqlQueryCallback_Command_ResetStats1(Handle database, Handle handle, const char[] sError, DataPack inputPack)
 {
+	inputPack.Reset();
+	char recordType[16];
+	inputPack.ReadString(recordType, sizeof(recordType));
+	CloseHandle(inputPack);
+
 	if (!handle)
 	{
-		ThrowError("SQL query error in SqlQueryCallback_Command_ResetStatsCustom1: '%s'", sError);
+		ThrowError("SQL query error in SqlQueryCallback_Command_ResetStats1: '%s'", sError);
 	}
 
-	CreateAuditLog("Custom stats reset.");
+	char auditString[64];
+	Format(auditString, sizeof(auditString), "%s stats reset.", recordType);
+	CreateAuditLog(auditString);
+
 	for (int i = 1; i < MaxClients + 1; i++)
 	{
 		if (IsClientConnected(i) && IsClientAuthorized(i) && !IsFakeClient(i))
 		{
-			EnsurePlayerCustomDatabaseRecordExists(i);
+			if (StrEqual(recordType, "Custom", false))
+			{
+				EnsurePlayerCustomDatabaseRecordExists(i);
+			}
+			else if (StrEqual(recordType, "Ranked", false))
+			{
+				EnsurePlayerRankedDatabaseRecordExists(i);
+			}
 		}
 	}
 }

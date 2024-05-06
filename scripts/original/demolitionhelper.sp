@@ -4,7 +4,7 @@
 #pragma semicolon 1
 #pragma newdecls required
 
-#define PLUGIN_VERSION "1.02"
+#define PLUGIN_VERSION "1.03"
 
 int _bombPlantedByTeam = -1;
 bool _isEnabled = false;
@@ -113,7 +113,7 @@ public void Event_ControlpointStartTouch(Event event, const char[] name, bool do
 	{
 		if ((playerTeam == 2 && area == 2) || (playerTeam == 3 && area == 0))
 		{
-			PrintHintText(playerClient, "Look down at the bomb zone and hold the use key to plant the bomb.");
+			PrintCenterText(playerClient, "Look down at the bomb zone and hold the use key to plant the bomb.");
 		}
 
 		return;
@@ -126,7 +126,7 @@ public void Event_ControlpointStartTouch(Event event, const char[] name, bool do
 
 	if (playerTeam != _bombPlantedByTeam)
 	{
-		PrintHintText(playerClient, "Look down at the bomb and hold the use key to diffuse the bomb.");
+		PrintCenterText(playerClient, "Look down at the bomb and hold the use key to diffuse the bomb.");
 	}
 }
 
@@ -148,7 +148,7 @@ public void Event_RoundStart(Event event, const char[] name, bool dontBroadcast)
 
 public void OnBombDropped()
 {
-	PrintHintTextToAll("The bomb has been dropped!");
+	PrintCenterTextAll("The bomb has been dropped!");
 
 	MarkBomb();
 }
@@ -157,7 +157,7 @@ public void OnBombPickedUp(int teamWithBomb)
 {
 	char[] yourTeamMessage = "Your team has picked up the bomb!";
 	char[] enemyTeamMessage = "The enemy team has picked up the bomb! Defend your base.";
-	PrintHintToPlayersByTeam(teamWithBomb == 2 ? yourTeamMessage : enemyTeamMessage, teamWithBomb == 3 ? yourTeamMessage : enemyTeamMessage);
+	PrintTipToPlayersByTeam(teamWithBomb == 2 ? yourTeamMessage : enemyTeamMessage, teamWithBomb == 3 ? yourTeamMessage : enemyTeamMessage);
 
 	MarkPlantZone(teamWithBomb);
 }
@@ -166,7 +166,7 @@ public void OnBombPlanted(int teamWithBomb)
 {
 	char[] yourTeamMessage = "Your team has planted the bomb! Don't let it get defused.";
 	char[] enemyTeamMessage = "The enemy team has planted the bomb! Defuse it.";
-	PrintHintToPlayersByTeam(teamWithBomb == 2 ? yourTeamMessage : enemyTeamMessage, teamWithBomb == 3 ? yourTeamMessage : enemyTeamMessage);
+	PrintTipToPlayersByTeam(teamWithBomb == 2 ? yourTeamMessage : enemyTeamMessage, teamWithBomb == 3 ? yourTeamMessage : enemyTeamMessage);
 
 	_bombPlantedByTeam = teamWithBomb;
 	MarkPlantZone(teamWithBomb);
@@ -217,7 +217,7 @@ public void GetEntityPosition(int entity, float vector[3])
 	GetEntPropVector(GetEntityAncestor(entity), Prop_Send, "m_vecOrigin", vector);
 }
 
-public void PrintHintToPlayersByTeam(const char[] textToPrintToSecurity, const char[] textToPrintToInsurgents)
+public void PrintTipToPlayersByTeam(const char[] textToPrintToSecurity, const char[] textToPrintToInsurgents)
 {
 	for (int i = 1; i < MaxClients + 1; i++)
 	{
@@ -226,11 +226,11 @@ public void PrintHintToPlayersByTeam(const char[] textToPrintToSecurity, const c
 			int team = GetClientTeam(i);
 			if (team == 2)
 			{
-				PrintHintText(i, textToPrintToSecurity);
+				PrintCenterText(i, textToPrintToSecurity);
 			}
 			else if (team == 3)
 			{
-				PrintHintText(i, textToPrintToInsurgents);
+				PrintCenterText(i, textToPrintToInsurgents);
 			}
 		}
 	}

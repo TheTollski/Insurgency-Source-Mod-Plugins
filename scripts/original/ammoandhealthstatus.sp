@@ -23,8 +23,6 @@ public void OnPluginStart()
 {
 	CreateConVar("ammoandhealthstatus", PLUGIN_VERSION, "Standard plugin version ConVar. Please don't change me!", FCVAR_REPLICATED|FCVAR_NOTIFY|FCVAR_DONTRECORD);
 
-	HookEvent("round_start", Event_RoundStart);
-
   CreateTimer(0.5, UpdateAmmoAndHealthStatusesTimer, _, TIMER_REPEAT);
 }
 
@@ -35,56 +33,6 @@ public void OnPluginStart()
 //
 // Hooks
 //
-
-public void Event_RoundStart(Event event, const char[] name, bool dontBroadcast)
-{
-	PrintToChatAll("Round Start");
-
-  for (int i = 1, iClients = GetClientCount(); i <= iClients; i++)
-  {
-    if (IsClientInGame(i) && !IsFakeClient(i))
-    {
-      // CreateDialog doesn't seem to be supported.
-      // PrintToChat(i, "Showing dialog");
-      // KeyValues kv = new KeyValues("hello", "title", "Press ESC To Type Input");
-      // kv.SetString("msg", "Type your message here");
-      // kv.SetString("command", "sm_something");
-      // kv.SetNum("level", 1);
-      // kv.SetNum("time", 200);
-      // CreateDialog(i, kv, DialogType_Entry);
-      // delete kv;
-
-
-      //Hud text doesn't seem to be supported
-      // PrintToChat(i, "Showing hud text");
-      // SetHudTextParams(-1.0, -1.0, 5.0, 255, 0, 0, 255, 0, 0.25, 1.0, 1.0);
-      // ShowHudText(i, -1, "This is a test %d", i);
-
-
-      // Menus take up buttons and will close when those buttons are pressed.
-      // PrintToChat(i, "Showing menu");
-      // Menu menu = new Menu(Handle_Menu);
-      // menu.SetTitle("Title");
-      // menu.AddItem("yes", "Yes");
-      // menu.ExitButton = false;
-      // menu.Display(i, 9);
-
-
-      // Panels have the same issues as menus.
-      // PrintToChat(i, "Showing panel");
-      // Panel panel = new Panel();
-      // panel.SetTitle("Do you like apples?");
-      // panel.DrawItem("Yes");
-      // panel.DrawItem("No");
-  
-      // panel.Send(i, PanelHandler1, 20);
-  
-      // delete panel;
-    }
-
-
-  }
-}
 
 // 
 // Helper Functions

@@ -8,16 +8,19 @@ ConVar convar_DOI_Quota;
 
 public Plugin myinfo = {
 	name = "[DOI] Bot-Quota", 
-	author = "Drixevel, Lua", 
+	author = "Drixevel, Lua (Edited by Tollski)", 
 	description = "Manually enforces a bot quota.", 
-	version = "1.1.0", 
+	version = "1.1.1", 
 	url = "https://drixevel.dev/"
 };
 
 public void OnPluginStart() {
 	convar_Quota = CreateConVar("sm_bot_quota", "0", "Bot Quota Hax", FCVAR_PROTECTED);
+	convar_Quota.AddChangeHook(ConVarChanged_SmBotQuota);
 	convar_DOI_Quota = FindConVar("doi_bot_quota");
+
 	RegAdminCmd("removebots", cmd_removebots, ADMFLAG_RESERVATION, "remove all bots");
+
 	CreateTimer(2.0, Timer_BotUpdate, _, TIMER_REPEAT);
 }
 
@@ -32,13 +35,22 @@ public void OnConfigsExecuted() {
 public Action cmd_removebots(int client, int args) {
 	ServerCommand("sm_bot_quota 0");
 	for (int i = 1; i <= MaxClients; i++) {
-		if (!IsClientInGame(i) || !IsFakeClient(i) || IsClientReplay(i) || IsClientSourceTV(i)) {
+		if (!IsClientInGame(i) || !IsFakeClient(i) || GetClientTeam(i) < 2) {
 			continue;
 		}
 		KickClient(i);
 	}
+
 	ReplyToCommand(client, "Done");
 	return Plugin_Handled;
+}
+
+public void ConVarChanged_SmBotQuota(ConVar convar, char[] oldValue, char[] newValue)
+{
+	SetConVarBounds(convar_DOI_Quota, ConVarBound_Lower, true, convar_Quota.FloatValue);
+	SetConVarBounds(convar_DOI_Quota, ConVarBound_Upper, true, convar_Quota.FloatValue);
+	convar_DOI_Quota.IntValue = convar_Quota.IntValue;
+	PrintToConsoleAll("New bot quota: %d", convar_DOI_Quota.IntValue);
 }
 
 public Action Timer_BotUpdate(Handle timer) {

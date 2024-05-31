@@ -4,7 +4,7 @@
 #pragma semicolon 1
 #pragma newdecls required
 
-#define PLUGIN_VERSION "1.00"
+#define PLUGIN_VERSION "1.01"
 
 public Plugin myinfo = 
 {
@@ -21,8 +21,8 @@ public Plugin myinfo =
 
 public void OnPluginStart()
 {
-	CreateConVar("ammoandhealthstatus", PLUGIN_VERSION, "Standard plugin version ConVar. Please don't change me!", FCVAR_REPLICATED|FCVAR_NOTIFY|FCVAR_DONTRECORD);
-
+  CreateConVar("ammoandhealthstatus", PLUGIN_VERSION, "Standard plugin version ConVar. Please don't change me!", FCVAR_REPLICATED|FCVAR_NOTIFY|FCVAR_DONTRECORD);
+  
   CreateTimer(0.5, UpdateAmmoAndHealthStatusesTimer, _, TIMER_REPEAT);
 }
 
@@ -42,11 +42,13 @@ public Action UpdateAmmoAndHealthStatusesTimer(Handle timer, DataPack inputPack)
 {
   for (int i = 1; i < MaxClients + 1; i++)
 	{
-		if (IsClientConnected(i) && IsClientAuthorized(i) && !IsFakeClient(i) && IsPlayerAlive(i))
+		if (IsClientInGame(i) && !IsFakeClient(i) && IsPlayerAlive(i))
 		{
 			UpdateAmmoAndHealthStatus(i);
 		}
 	}
+
+  return Plugin_Handled;
 }
 
 public void UpdateAmmoAndHealthStatus(int client)

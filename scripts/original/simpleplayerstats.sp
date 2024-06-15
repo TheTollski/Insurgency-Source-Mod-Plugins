@@ -4,7 +4,7 @@
 #pragma semicolon 1
 #pragma newdecls required
 
-#define PLUGIN_VERSION "1.09"
+#define PLUGIN_VERSION "2.00"
 
 StringMap _authIdDisconnectTimestampMap;
 Database _database;
@@ -61,7 +61,10 @@ public void OnPluginStart()
 	RegAdminCmd("sm_getcachedoutput", Command_GetCachedOutput, ADMFLAG_GENERIC, "Prints the post-DB call cached output from the last command.");
 	RegAdminCmd("sm_resetstats", Command_ResetStats, ADMFLAG_GENERIC, "Resets the selected type of stats for all players.");
 
+	RegConsoleCmd("sm_createclan", Command_CreateClan, "Creates a clan.");
+	RegConsoleCmd("sm_deleteclan", Command_DeleteClan, "Deletes thes clan that you are in.");
 	RegConsoleCmd("sm_leaderboard", Command_Leaderboard, "Prints the leaderboard.");
+	RegConsoleCmd("sm_leaveclan", Command_LeaveClan, "Leaves the clan that you are in.");
 	RegConsoleCmd("sm_mystats", Command_MyStats, "Prints your stats.");
 
 	ConnectToDatabase();
@@ -102,9 +105,9 @@ public void OnClientPostAdminCheck(int client)
 	}
 
 	_lastConnectedTimeSavedTimestamps[client] = GetTime();
-	GetClientName(client, _playerNames[client], MAX_NAME_LENGTH);
+	GetClientName(client, _playerNames[client], MAX_NAME_LENGTH); // TODO: Remove user's clan tag in their actual name.
 	
-	UpdateClientRank(client);
+	UpdateClientName(client);
 
 	char authId[35];
 	GetClientAuthId(client, AuthId_Steam2, authId, sizeof(authId));
@@ -285,6 +288,83 @@ public Action Command_AuditLogs(int client, int args)
 	return Plugin_Handled;
 }
 
+public Action Command_CreateClan(int client, int args)
+{
+	if (args < 2)
+	{
+		ReplyToCommand(client, "\x05[Simple Player Stats] Usage: sm_createclan ClanTag ClanName");
+		return Plugin_Handled;
+	}
+
+	char clanId[32];
+	GetCmdArg(1, clanId, sizeof(clanId));
+
+	if (strlen(clanId) < 2 || strlen(clanId) > 4)
+	{
+		ReplyToCommand(client, "\x05[Simple Player Stats] Usage: ClanTag must be 2-4 characters long.");
+		return Plugin_Handled;
+	}
+
+	char clanName[65];
+	GetCmdArg(2, clanName, sizeof(clanName));
+
+	for (int i = 3; i <= args; i++)
+	{
+		char argx[65];
+		GetCmdArg(i, argx, sizeof(argx));
+
+		if (strlen(clanName) + strlen(argx) > 64)
+		{
+			ReplyToCommand(client, "\x05[Simple Player Stats] Usage: ClanName must be less than 64 characters long.");
+			return Plugin_Handled;
+		}
+
+		Format(clanName, sizeof(clanName), "%s %s", clanName, argx);
+	}
+
+	DataPack pack = new DataPack();
+	pack.WriteCell(client);
+	pack.WriteString(clanId);
+	pack.WriteString(clanName);
+
+	ReplyToCommand(client, "\x05[Simple Player Stats] Processing createclan command, output will be printed in your console.");
+
+	char queryString[256];
+	SQL_FormatQuery(
+		_database, queryString, sizeof(queryString),
+		"SELECT * FROM pcs_clans WHERE UPPER(ClanId) = UPPER('%s')", clanId);
+	SQL_TQuery(_database, SqlQueryCallback_Command_CreateClan1, queryString, pack);
+	return Plugin_Handled;
+}
+
+public Action Command_DeleteClan(int client, int args)
+{
+	if (args != 1)
+	{
+		ReplyToCommand(client, "\x05[Simple Player Stats] Usage: deleteclan ClanTag");
+		return Plugin_Handled;
+	}
+
+	char clanId[32];
+	GetCmdArg(1, clanId, sizeof(clanId));
+
+	char authId[35];
+	GetClientAuthId(client, AuthId_Steam2, authId, sizeof(authId));
+
+	DataPack pack = new DataPack();
+	pack.WriteCell(client);
+	pack.WriteString(clanId);
+
+	ReplyToCommand(client, "\x05[Simple Player Stats] Processing deleteclan command, output will be printed in your console.");
+
+	char queryString[256];
+	SQL_FormatQuery(
+		_database, queryString, sizeof(queryString),
+		"SELECT * FROM pcs_player_to_clan_relationships WHERE AuthId = '%s' AND ClanId = '%s'", authId, clanId);
+	SQL_TQuery(_database, SqlQueryCallback_Command_DeleteClan1, queryString, pack);
+	return Plugin_Handled;
+}
+
 public Action Command_GetCachedOutput(int client, int args)
 {
 	char arg1[32];
@@ -378,6 +458,27 @@ public Action Command_Leaderboard(int client, int args)
 		_database, queryString, sizeof(queryString),
 		"SELECT * FROM sps_players WHERE RecordType = 'Ranked' ORDER BY RankPoints DESC LIMIT 99");
 	SQL_TQuery(_database, SqlQueryCallback_Command_Leaderboard1, queryString, pack);
+	return Plugin_Handled;
+}
+
+public Action Command_LeaveClan(int client, int args)
+{
+	if (args != 0)
+	{
+		ReplyToCommand(client, "\x05[Simple Player Stats] Usage: sm_leaveclan");
+		return Plugin_Handled;
+	}
+
+	char authId[35];
+	GetClientAuthId(client, AuthId_Steam2, authId, sizeof(authId));
+
+	ReplyToCommand(client, "\x05[Simple Player Stats] Processing leaveclan command, output will be printed in your console.");
+
+	char queryString[256];
+	SQL_FormatQuery(
+		_database, queryString, sizeof(queryString),
+		"SELECT * FROM pcs_player_to_clan_relationships WHERE AuthId = '%s'", authId);
+	SQL_TQuery(_database, SqlQueryCallback_Command_LeaveClan1, queryString, client);
 	return Plugin_Handled;
 }
 
@@ -818,11 +919,27 @@ public void ConnectToDatabase()
 		return;
 	}
 
-	SQL_TQuery(_database, SqlQueryCallback_Default, "CREATE TABLE IF NOT EXISTS sps_auditlogs (Timestamp INT(11) NOT NULL, Description VARCHAR(128) NOT NULL)");
+	SQL_TQuery(
+		_database, SqlQueryCallback_Default,
+		"CREATE TABLE IF NOT EXISTS sps_auditlogs (Timestamp INT(11) NOT NULL, Description VARCHAR(128) NOT NULL)");
 
 	SQL_TQuery(
 		_database, SqlQueryCallback_Default,
 		"CREATE TABLE IF NOT EXISTS sps_players (AuthId VARCHAR(35) NOT NULL, RecordType VARCHAR(16) NOT NULL, PlayerName VARCHAR(64) NOT NULL, FirstConnectionTimestamp INT(11) NOT NULL, LastConnectionTimestamp INT(11) NOT NULL, ConnectionCount INT(7) NOT NULL, ConnectedTime INT(9) NOT NULL, ActiveTime INT(9) NOT NULL, EnemyBotKills INT(8) NOT NULL, EnemyPlayerKills INT(8) NOT NULL, TeamKills INT(8) NOT NULL, DeathsToEnemyBots INT(8) NOT NULL, DeathsToEnemyPlayers INT(8) NOT NULL, DeathsToSelf INT(8) NOT NULL, DeathsToTeam INT(8) NOT NULL, DeathsToOther INT(8) NOT NULL, ControlPointsCaptured INT(8) NOT NULL, FlagsCaptured INT(8) NOT NULL, FlagsPickedUp INT(8) NOT NULL, ObjectivesDestroyed INT(8) NOT NULL, RankPoints INT(9), UNIQUE(AuthId, RecordType))");
+
+	// TODO: Separate player stats from players table.
+
+	SQL_TQuery(
+		_database, SqlQueryCallback_Default,
+		"CREATE TABLE IF NOT EXISTS pcs_clans (ClanId VARCHAR(4) NOT NULL, ClanName VARCHAR(64) NOT NULL, CreationTimestamp INT(11) NOT NULL, UNIQUE(ClanId))");
+
+	SQL_TQuery(
+		_database, SqlQueryCallback_Default,
+		"CREATE TABLE IF NOT EXISTS pcs_clan_stats (ClanId VARCHAR(4) NOT NULL, RecordType VARCHAR(16) NOT NULL, ConnectionCount INT(7) NOT NULL, ConnectedTime INT(9) NOT NULL, ActiveTime INT(9) NOT NULL, EnemyBotKills INT(8) NOT NULL, EnemyPlayerKills INT(8) NOT NULL, TeamKills INT(8) NOT NULL, DeathsToEnemyBots INT(8) NOT NULL, DeathsToEnemyPlayers INT(8) NOT NULL, DeathsToSelf INT(8) NOT NULL, DeathsToTeam INT(8) NOT NULL, DeathsToOther INT(8) NOT NULL, ControlPointsCaptured INT(8) NOT NULL, FlagsCaptured INT(8) NOT NULL, FlagsPickedUp INT(8) NOT NULL, ObjectivesDestroyed INT(8) NOT NULL, RankPoints INT(9), UNIQUE(ClanId, RecordType))");
+
+	SQL_TQuery(
+		_database, SqlQueryCallback_Default,
+		"CREATE TABLE IF NOT EXISTS pcs_player_to_clan_relationships (AuthId VARCHAR(35) NOT NULL, ClanId VARCHAR(4) NOT NULL, RankInClan INT(2) NOT NULL, JoinTimestamp INT(11) NOT NULL, UNIQUE(AuthId))");
 }
 
 public void CreateAuditLog(const char[] logDescription)
@@ -1050,6 +1167,217 @@ public void SqlQueryCallback_Command_AuditLogs1(Handle database, Handle handle, 
 	}
 }
 
+public void SqlQueryCallback_Command_CreateClan1(Handle database, Handle handle, const char[] sError, DataPack inputPack)
+{
+	inputPack.Reset();
+	int client = inputPack.ReadCell();
+	char clanId[5];
+	inputPack.ReadString(clanId, sizeof(clanId));
+	char clanName[65];
+	inputPack.ReadString(clanName, sizeof(clanName));
+	//CloseHandle(inputPack);
+
+	if (!handle)
+	{
+		ThrowError("SQL query error in SqlQueryCallback_Command_CreateClan1: %d, '%s'", client, sError);
+	}
+
+	if (SQL_GetRowCount(handle) > 0)
+	{
+		ReplyToCommand(client, "\x07[Simple Player Stats] A clan already exists with the tag '%s'.", clanId);
+		return;
+	}
+
+	char queryString[256];
+	SQL_FormatQuery(
+		_database, queryString, sizeof(queryString),
+		"SELECT * FROM pcs_clans WHERE UPPER(ClanName) = UPPER('%s')", clanName);
+	SQL_TQuery(_database, SqlQueryCallback_Command_CreateClan2, queryString, inputPack);
+}
+
+public void SqlQueryCallback_Command_CreateClan2(Handle database, Handle handle, const char[] sError, DataPack inputPack)
+{
+	inputPack.Reset();
+	int client = inputPack.ReadCell();
+	char clanId[5];
+	inputPack.ReadString(clanId, sizeof(clanId));
+	char clanName[65];
+	inputPack.ReadString(clanName, sizeof(clanName));
+	//CloseHandle(inputPack);
+
+	if (!handle)
+	{
+		ThrowError("SQL query error in SqlQueryCallback_Command_CreateClan2: %d, '%s'", client, sError);
+	}
+
+	if (SQL_GetRowCount(handle) > 0)
+	{
+		ReplyToCommand(client, "\x07[Simple Player Stats] A clan already exists with the name '%s'.", clanName);
+		return;
+	}
+
+	char authId[35];
+	GetClientAuthId(client, AuthId_Steam2, authId, sizeof(authId));
+
+	char queryString[256];
+	SQL_FormatQuery(
+		_database, queryString, sizeof(queryString),
+		"SELECT * FROM pcs_player_to_clan_relationships WHERE AuthId = '%s'", authId);
+	SQL_TQuery(_database, SqlQueryCallback_Command_CreateClan3, queryString, inputPack);
+}
+
+public void SqlQueryCallback_Command_CreateClan3(Handle database, Handle handle, const char[] sError, DataPack inputPack)
+{
+	inputPack.Reset();
+	int client = inputPack.ReadCell();
+	char clanId[5];
+	inputPack.ReadString(clanId, sizeof(clanId));
+	char clanName[65];
+	inputPack.ReadString(clanName, sizeof(clanName));
+	//CloseHandle(inputPack);
+
+	if (!handle)
+	{
+		ThrowError("SQL query error in SqlQueryCallback_Command_CreateClan3: %d, '%s'", client, sError);
+	}
+
+	if (SQL_GetRowCount(handle) > 0)
+	{
+		ReplyToCommand(client, "\x07[Simple Player Stats] You are already in a clan. You must first leave your clan before creating a new one.");
+		return;
+	}
+
+	char authId[35];
+	GetClientAuthId(client, AuthId_Steam2, authId, sizeof(authId));
+
+	char queryString[256];
+	SQL_FormatQuery(
+		_database, queryString, sizeof(queryString),
+		"INSERT INTO pcs_player_to_clan_relationships (AuthId, ClanId, RankInClan, JoinTimestamp) VALUES ('%s', '%s', %d, %d)",
+		authId, clanId, 1, GetTime());
+	SQL_TQuery(_database, SqlQueryCallback_Command_CreateClan4, queryString, inputPack);
+}
+
+public void SqlQueryCallback_Command_CreateClan4(Handle database, Handle handle, const char[] sError, DataPack inputPack)
+{
+	inputPack.Reset();
+	int client = inputPack.ReadCell();
+	char clanId[5];
+	inputPack.ReadString(clanId, sizeof(clanId));
+	char clanName[65];
+	inputPack.ReadString(clanName, sizeof(clanName));
+	//CloseHandle(inputPack);
+
+	if (!handle)
+	{
+		ThrowError("SQL query error in SqlQueryCallback_Command_CreateClan4: %d, '%s'", client, sError);
+	}
+
+	char queryString[256];
+	SQL_FormatQuery(
+		_database, queryString, sizeof(queryString),
+		"INSERT INTO pcs_clans (ClanId, ClanName, CreationTimestamp) VALUES ('%s', '%s', %d)",
+		clanId, clanName, GetTime());
+	SQL_TQuery(_database, SqlQueryCallback_Command_CreateClan5, queryString, inputPack);
+}
+
+public void SqlQueryCallback_Command_CreateClan5(Handle database, Handle handle, const char[] sError, DataPack inputPack)
+{
+	inputPack.Reset();
+	int client = inputPack.ReadCell();
+	char clanId[5];
+	inputPack.ReadString(clanId, sizeof(clanId));
+	char clanName[65];
+	inputPack.ReadString(clanName, sizeof(clanName));
+	CloseHandle(inputPack);
+
+	if (!handle)
+	{
+		ThrowError("SQL query error in SqlQueryCallback_Command_CreateClan5: %d, '%s'", client, sError);
+	}
+
+	ReplyToCommand(client, "\x07[Simple Player Stats] You successfully created clan '%s'.", clanId);
+
+	UpdateClientName(client);
+}
+
+public void SqlQueryCallback_Command_DeleteClan1(Handle database, Handle handle, const char[] sError, DataPack inputPack)
+{
+	inputPack.Reset();
+	int client = inputPack.ReadCell();
+	char clanId[5];
+	inputPack.ReadString(clanId, sizeof(clanId));
+	//CloseHandle(inputPack);
+
+	if (!handle)
+	{
+		ThrowError("SQL query error in SqlQueryCallback_Command_DeleteClan1: %d, '%s'", client, sError);
+	}
+
+	if (SQL_GetRowCount(handle) != 1)
+	{
+		ReplyToCommand(client, "\x07[Simple Player Stats] You are not in the '%s' clan.", clanId);
+		return;
+	}
+
+	SQL_FetchRow(handle);
+
+	int rankInClan = SQL_FetchInt(handle, 2);
+
+	if (rankInClan != 1)
+	{
+		ReplyToCommand(client, "\x07[Simple Player Stats] You cannot delete a clan that you don't own.");
+		return;
+	}
+
+	char queryString[256];
+	SQL_FormatQuery(
+		_database, queryString, sizeof(queryString),
+		"DELETE FROM pcs_clans WHERE ClanId = '%s'", clanId);
+	SQL_TQuery(_database, SqlQueryCallback_Command_DeleteClan2, queryString, inputPack);
+}
+
+public void SqlQueryCallback_Command_DeleteClan2(Handle database, Handle handle, const char[] sError, DataPack inputPack)
+{
+	inputPack.Reset();
+	int client = inputPack.ReadCell();
+	char clanId[5];
+	inputPack.ReadString(clanId, sizeof(clanId));
+	//CloseHandle(inputPack);
+
+	if (!handle)
+	{
+		ThrowError("SQL query error in SqlQueryCallback_Command_DeleteClan2: %d, '%s'", client, sError);
+	}
+
+	char authId[35];
+	GetClientAuthId(client, AuthId_Steam2, authId, sizeof(authId));
+
+	char queryString[256];
+	SQL_FormatQuery(
+		_database, queryString, sizeof(queryString),
+		"DELETE FROM pcs_player_to_clan_relationships WHERE AuthId = '%s'", authId);
+	SQL_TQuery(_database, SqlQueryCallback_Command_DeleteClan3, queryString, inputPack);
+}
+
+public void SqlQueryCallback_Command_DeleteClan3(Handle database, Handle handle, const char[] sError, DataPack inputPack)
+{
+	inputPack.Reset();
+	int client = inputPack.ReadCell();
+	char clanId[5];
+	inputPack.ReadString(clanId, sizeof(clanId));
+	CloseHandle(inputPack);
+
+	if (!handle)
+	{
+		ThrowError("SQL query error in SqlQueryCallback_Command_DeleteClan3: %d, '%s'", client, sError);
+	}
+
+	ReplyToCommand(client, "\x07[Simple Player Stats] Your successfully deleted clan '%s'.", clanId);
+
+	UpdateClientName(client);
+}
+
 public void SqlQueryCallback_Command_Leaderboard1(Handle database, Handle handle, const char[] sError, DataPack inputPack)
 {
 	inputPack.Reset();
@@ -1113,6 +1441,50 @@ public void SqlQueryCallback_Command_Leaderboard1(Handle database, Handle handle
 			_postDbCallOutputCount++;
 		}
 	}
+}
+
+public void SqlQueryCallback_Command_LeaveClan1(Handle database, Handle handle, const char[] sError, int client)
+{
+	if (!handle)
+	{
+		ThrowError("SQL query error in SqlQueryCallback_Command_LeaveClan1: %d, '%s'", client, sError);
+	}
+
+	if (SQL_GetRowCount(handle) == 0)
+	{
+		ReplyToCommand(client, "\x07[Simple Player Stats] You are not in a clan.");
+		return;
+	}
+
+	SQL_FetchRow(handle);
+
+	char authId[32];
+	SQL_FetchString(handle, 0, authId, sizeof(authId));
+	int rankInClan = SQL_FetchInt(handle, 2);
+
+	if (rankInClan == 1)
+	{
+		ReplyToCommand(client, "\x07[Simple Player Stats] You cannot leave a clan that you own. You must delete the clan or transfer ownership of the clan to a different player.");
+		return;
+	}
+
+	char queryString[256];
+	SQL_FormatQuery(
+		_database, queryString, sizeof(queryString),
+		"DELETE FROM pcs_player_to_clan_relationships WHERE AuthId = '%s'", authId);
+	SQL_TQuery(_database, SqlQueryCallback_Command_LeaveClan2, queryString, client);
+}
+
+public void SqlQueryCallback_Command_LeaveClan2(Handle database, Handle handle, const char[] sError, int client)
+{
+	if (!handle)
+	{
+		ThrowError("SQL query error in SqlQueryCallback_Command_LeaveClan2: %d, '%s'", client, sError);
+	}
+
+	ReplyToCommand(client, "\x07[Simple Player Stats] You have left your clan.");
+
+	UpdateClientName(client);
 }
 
 public void SqlQueryCallback_Command_MyStats1(Handle database, Handle handle, const char[] sError, int client)
@@ -1291,6 +1663,45 @@ public void SqlQueryCallback_ResetStartupStats1(Handle database, Handle handle, 
 	}
 }
 
+public void SqlQueryCallback_Command_UpdateClientName1(Handle database, Handle handle, const char[] sError, int client)
+{
+	if (!handle)
+	{
+		ThrowError("SQL query error in SqlQueryCallback_Command_UpdateClientName1: %d, '%s'", client, sError);
+	}
+
+	char authId[35];
+	GetClientAuthId(client, AuthId_Steam2, authId, sizeof(authId));
+
+	if (SQL_GetRowCount(handle) == 0)
+	{
+		ThrowError("No player record was found for AuthId '%s'", authId);
+	}
+
+	SQL_FetchRow(handle);
+
+	int rankPoints = SQL_FetchInt(handle, 0);
+	char clanId[5];
+	SQL_FetchString(handle, 1, clanId, sizeof(clanId));
+
+	char rankLongName[32];
+	char rankShortName[5];
+	GetRank(rankPoints, rankShortName, sizeof(rankShortName), rankLongName, sizeof(rankLongName));
+
+	char clanTagString[7];
+	if (strlen(clanId) > 0)
+	{
+		Format(clanTagString, sizeof(clanTagString), "[%s]", clanId);
+	}
+
+	char strNickname[64];
+	Format(strNickname, sizeof(strNickname), "{%s}%s %s", rankShortName, clanTagString, _playerNames[client]);
+
+	_isChangingName[client] = true;
+	SetClientName(client, strNickname);
+	_isChangingName[client] = false;
+}
+
 public void SqlQueryCallback_Command_UpdateClientRank1(Handle database, Handle handle, const char[] sError, int client)
 {
 	if (!handle)
@@ -1303,7 +1714,7 @@ public void SqlQueryCallback_Command_UpdateClientRank1(Handle database, Handle h
 
 	if (SQL_GetRowCount(handle) == 0)
 	{
-		ThrowError("No player record was found for your AuthId '%s'", authId);
+		ThrowError("No player record was found for AuthId '%s'", authId);
 	}
 
 	SQL_FetchRow(handle);
@@ -1325,7 +1736,7 @@ public void SqlQueryCallback_Command_UpdateClientRank1(Handle database, Handle h
 		+ flagsCaptured * 300 // 300 points per flag captured
 		+ flagsPickedUp * 100; // 100 points per flag picked up
 
-	// TODO: This should be the first level call.
+	// TODO: This should be the first level call, but the RETURNING clause doesn't seem to be working.
 	char queryString[256];
 	SQL_FormatQuery(
 		_database, queryString, sizeof(queryString),
@@ -1349,11 +1760,7 @@ public void SqlQueryCallback_Command_UpdateClientRank1(Handle database, Handle h
 
 	_playerRankIds[client] = rankId;
 
-	char strNickname[64];
-	Format(strNickname, sizeof(strNickname), "{%s} %s", rankShortName, _playerNames[client]);
-	_isChangingName[client] = true;
-	SetClientName(client, strNickname);
-	_isChangingName[client] = false;
+	UpdateClientName(client);
 }
 
 public void UpdateClientActiveAndConnectedTimes(int client)
@@ -1385,6 +1792,21 @@ public void UpdateClientActiveAndConnectedTimes(int client)
 	SQL_TQuery(_database, SqlQueryCallback_Default, queryString);
 }
 
+public void UpdateClientName(int client)
+{
+	if (strlen(_playerNames[client]) == 0)
+	{
+		return;
+	}
+
+	char authId[35];
+	GetClientAuthId(client, AuthId_Steam2, authId, sizeof(authId));
+
+	char queryString[256];
+	SQL_FormatQuery(_database, queryString, sizeof(queryString), "SELECT p.RankPoints, ptcr.ClanId FROM sps_players p LEFT JOIN pcs_player_to_clan_relationships ptcr ON p.AuthId = ptcr.AuthId WHERE p.AuthId = '%s' AND p.RecordType = 'Ranked'", authId);
+	SQL_TQuery(_database, SqlQueryCallback_Command_UpdateClientName1, queryString, client);
+}
+
 public void UpdateClientRank(int client)
 {
 	if (strlen(_playerNames[client]) == 0)
@@ -1395,9 +1817,7 @@ public void UpdateClientRank(int client)
 	char authId[35];
 	GetClientAuthId(client, AuthId_Steam2, authId, sizeof(authId));
 
-	// TODO: Change this call to UPDATE
-
 	char queryString[256];
-	SQL_FormatQuery(_database, queryString, sizeof(queryString), "SELECT * FROM sps_players WHERE AuthId = '%s' AND RecordType = 'Total'", authId);
+	SQL_FormatQuery(_database, queryString, sizeof(queryString), "SELECT * FROM sps_players WHERE AuthId = '%s' AND RecordType = 'Ranked'", authId);
 	SQL_TQuery(_database, SqlQueryCallback_Command_UpdateClientRank1, queryString, client);
 }

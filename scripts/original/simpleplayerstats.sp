@@ -35,6 +35,8 @@ public Plugin myinfo =
 // Track MVP stats
 // Track accuracy stats
 // Clan support
+// Print output to chat
+	// Use correct colors.
 
 //
 // Forwards
@@ -62,7 +64,9 @@ public void OnPluginStart()
 	RegAdminCmd("sm_resetstats", Command_ResetStats, ADMFLAG_GENERIC, "Resets the selected type of stats for all players.");
 
 	RegConsoleCmd("sm_createclan", Command_CreateClan, "Creates a clan.");
-	RegConsoleCmd("sm_deleteclan", Command_DeleteClan, "Deletes thes clan that you are in.");
+	RegConsoleCmd("sm_deleteclan", Command_DeleteClan, "Deletes the clan that you are in.");
+	RegConsoleCmd("sm_invitetoclan", Command_InviteToClan, "Sends an invitation to someone to join your clan.");
+	RegConsoleCmd("sm_joinclan", Command_JoinClan, "Joins a clan.");
 	RegConsoleCmd("sm_leaderboard", Command_Leaderboard, "Prints the leaderboard.");
 	RegConsoleCmd("sm_leaveclan", Command_LeaveClan, "Leaves the clan that you are in.");
 	RegConsoleCmd("sm_mystats", Command_MyStats, "Prints your stats.");
@@ -106,8 +110,6 @@ public void OnClientPostAdminCheck(int client)
 
 	_lastConnectedTimeSavedTimestamps[client] = GetTime();
 	GetClientName(client, _playerNames[client], MAX_NAME_LENGTH); // TODO: Remove user's clan tag in their actual name.
-	
-	UpdateClientName(client);
 
 	char authId[35];
 	GetClientAuthId(client, AuthId_Steam2, authId, sizeof(authId));
@@ -116,6 +118,7 @@ public void OnClientPostAdminCheck(int client)
 	int disconnectTimestamp;
 	if (_authIdDisconnectTimestampMap.GetValue(authId, disconnectTimestamp) && timestamp - disconnectTimestamp < 300)
 	{
+		UpdateClientName(client);
 		return;
 	}
 
@@ -123,6 +126,8 @@ public void OnClientPostAdminCheck(int client)
 	EnsurePlayerRankedDatabaseRecordExists(client);
 	EnsurePlayerStartupDatabaseRecordExists(client);
 	EnsurePlayerTotalDatabaseRecordExists(client);
+
+	UpdateClientName(client);
 }
 
 public void OnMapStart()
@@ -417,6 +422,88 @@ public Action Command_GetCachedOutput(int client, int args)
 		ReplyToCommand(client, _postDbCallOutput[i]);
 	}
 
+	return Plugin_Handled;
+}
+
+public Action Command_InviteToClan(int client, int args)
+{
+	if (args != 1)
+	{
+		ReplyToCommand(client, "\x07[Simple Player Stats] Usage: sm_invitetoclan ClientId");
+
+		ReplyToCommand(client, "\x07[Simple Player Stats] Valid ClientIds:");
+		ReplyToCommand(client, "\x07[Simple Player Stats] ClientId | PlayerName");
+		ReplyToCommand(client, "\x07[Simple Player Stats] -------- | ----------");
+
+		for (int i = 1; i < MaxClients + 1; i++)
+		{
+			if (i == client || !IsClientInGame(i) || IsFakeClient(i))
+			{
+				continue;
+			}
+
+			char otherClientName[MAX_NAME_LENGTH];
+			GetClientName(i, otherClientName, MAX_NAME_LENGTH);
+			ReplyToCommand(client, "\x07[Simple Player Stats] %8d | %s", i, otherClientName);
+		}
+
+		return Plugin_Handled;
+	}
+
+	char arg1[32];
+	GetCmdArg(1, arg1, sizeof(arg1));
+
+	int inviteeClient = StringToInt(arg1);
+
+	if (inviteeClient < 1 || inviteeClient > MaxClients || inviteeClient == client || !IsClientInGame(inviteeClient) || IsFakeClient(inviteeClient))
+	{
+		ReplyToCommand(client, "\x05[Simple Player Stats] Usage: You did not select a valid ClientId.");
+		return Plugin_Handled;
+	}
+
+	char authId[35];
+	GetClientAuthId(client, AuthId_Steam2, authId, sizeof(authId));
+
+	DataPack pack = new DataPack();
+	pack.WriteCell(client);
+	pack.WriteCell(inviteeClient);
+
+	ReplyToCommand(client, "\x05[Simple Player Stats] Processing invitetoclan command, output will be printed in your console.");
+
+	char queryString[256];
+	SQL_FormatQuery(
+	 	_database, queryString, sizeof(queryString),
+	 	"SELECT * FROM pcs_player_to_clan_relationships WHERE AuthId = '%s'", authId);
+	SQL_TQuery(_database, SqlQueryCallback_Command_InviteToClan1, queryString, pack);
+	return Plugin_Handled;
+}
+
+public Action Command_JoinClan(int client, int args)
+{
+	if (args != 1)
+	{
+		ReplyToCommand(client, "\x07[Simple Player Stats] Usage: sm_joinclan ClanTag");
+		return Plugin_Handled;
+	}
+
+	char arg1[32];
+	GetCmdArg(1, arg1, sizeof(arg1));
+
+	char authId[35];
+	GetClientAuthId(client, AuthId_Steam2, authId, sizeof(authId));
+
+	DataPack pack = new DataPack();
+	pack.WriteCell(client);
+	pack.WriteString(arg1);
+
+	ReplyToCommand(client, "\x05[Simple Player Stats] Processing joinclan command, output will be printed in your console.");
+
+	char queryString[256];
+	SQL_FormatQuery(
+	 	_database, queryString, sizeof(queryString),
+	 	"SELECT * FROM pcs_clan_invitations WHERE InviteeAuthId = '%s' AND ClanId = '%s' AND %d - InvitedTimestamp < 604800", // Clan invitations are active for 7 days.
+		authId, arg1, GetTime());
+	SQL_TQuery(_database, SqlQueryCallback_Command_JoinClan1, queryString, pack);
 	return Plugin_Handled;
 }
 
@@ -940,6 +1027,10 @@ public void ConnectToDatabase()
 	SQL_TQuery(
 		_database, SqlQueryCallback_Default,
 		"CREATE TABLE IF NOT EXISTS pcs_player_to_clan_relationships (AuthId VARCHAR(35) NOT NULL, ClanId VARCHAR(4) NOT NULL, RankInClan INT(2) NOT NULL, JoinTimestamp INT(11) NOT NULL, UNIQUE(AuthId))");
+
+	SQL_TQuery(
+		_database, SqlQueryCallback_Default,
+		"CREATE TABLE IF NOT EXISTS pcs_clan_invitations (InviterAuthId VARCHAR(35) NOT NULL, InviteeAuthId VARCHAR(35) NOT NULL, ClanId VARCHAR(4) NOT NULL, InvitedTimestamp INT(11) NOT NULL)");
 }
 
 public void CreateAuditLog(const char[] logDescription)
@@ -1350,13 +1441,10 @@ public void SqlQueryCallback_Command_DeleteClan2(Handle database, Handle handle,
 		ThrowError("SQL query error in SqlQueryCallback_Command_DeleteClan2: %d, '%s'", client, sError);
 	}
 
-	char authId[35];
-	GetClientAuthId(client, AuthId_Steam2, authId, sizeof(authId));
-
 	char queryString[256];
 	SQL_FormatQuery(
 		_database, queryString, sizeof(queryString),
-		"DELETE FROM pcs_player_to_clan_relationships WHERE AuthId = '%s'", authId);
+		"DELETE FROM pcs_player_to_clan_relationships WHERE ClanId = '%s'", clanId);
 	SQL_TQuery(_database, SqlQueryCallback_Command_DeleteClan3, queryString, inputPack);
 }
 
@@ -1373,8 +1461,165 @@ public void SqlQueryCallback_Command_DeleteClan3(Handle database, Handle handle,
 		ThrowError("SQL query error in SqlQueryCallback_Command_DeleteClan3: %d, '%s'", client, sError);
 	}
 
-	ReplyToCommand(client, "\x07[Simple Player Stats] Your successfully deleted clan '%s'.", clanId);
+	ReplyToCommand(client, "\x07[Simple Player Stats] You successfully deleted clan '%s'.", clanId);
 
+	// TODO: We should update the name of anyone in that clan who might be currently connected, but this works for now.
+	UpdateClientName(client);
+}
+
+public void SqlQueryCallback_Command_InviteToClan1(Handle database, Handle handle, const char[] sError, DataPack inputPack)
+{
+	inputPack.Reset();
+	int client = inputPack.ReadCell();
+	int inviteeClient = inputPack.ReadCell();
+	CloseHandle(inputPack);
+
+	if (!handle)
+	{
+		ThrowError("SQL query error in SqlQueryCallback_Command_InviteToClan1: %d, '%s'", client, sError);
+	}
+
+	if (SQL_GetRowCount(handle) != 1)
+	{
+		ReplyToCommand(client, "\x07[Simple Player Stats] You are not in a clan.");
+		return;
+	}
+
+	SQL_FetchRow(handle);
+
+	char clanId[5];
+	SQL_FetchString(handle, 1, clanId, sizeof(clanId));
+	int rankInClan = SQL_FetchInt(handle, 2);
+
+	if (rankInClan > 2)
+	{
+		ReplyToCommand(client, "\x07[Simple Player Stats] You cannot invite other people to a clan if you are not a clan owner or officer.");
+		return;
+	}
+
+	char inviterAuthId[35];
+	GetClientAuthId(client, AuthId_Steam2, inviterAuthId, sizeof(inviterAuthId));
+	char inviteeAuthId[35];
+	GetClientAuthId(inviteeClient, AuthId_Steam2, inviteeAuthId, sizeof(inviteeAuthId));
+
+	DataPack pack = new DataPack();
+	pack.WriteCell(client);
+	pack.WriteCell(inviteeClient);
+	pack.WriteString(clanId);
+
+	char queryString[256];
+	SQL_FormatQuery(
+		_database, queryString, sizeof(queryString),
+		"INSERT INTO pcs_clan_invitations (InviterAuthId, InviteeAuthId, ClanId, InvitedTimestamp) VALUES ('%s', '%s', '%s', %d)",
+		inviterAuthId, inviteeAuthId, clanId, GetTime());
+	SQL_TQuery(_database, SqlQueryCallback_Command_InviteToClan2, queryString, pack);
+}
+
+public void SqlQueryCallback_Command_InviteToClan2(Handle database, Handle handle, const char[] sError, DataPack inputPack)
+{
+	inputPack.Reset();
+	int client = inputPack.ReadCell();
+	int inviteeClient = inputPack.ReadCell();
+	char clanId[5];
+	inputPack.ReadString(clanId, sizeof(clanId));
+	CloseHandle(inputPack);
+
+	if (!handle)
+	{
+		ThrowError("SQL query error in SqlQueryCallback_Command_InviteToClan2: %d, '%s'", client, sError);
+	}
+
+	char inviteeName[MAX_NAME_LENGTH];
+	GetClientName(inviteeClient, inviteeName, MAX_NAME_LENGTH);
+
+	ReplyToCommand(client, "\x07[Simple Player Stats] You successfully invited '%s' to join your clan.", inviteeName);
+
+	PrintToChat(inviteeClient, "\x07f5bf03[Simple Player Stats] You have been invited to join the '%s' clan. To accept this invitation, enter the command: !joinclan %s", clanId, clanId);
+}
+
+public void SqlQueryCallback_Command_JoinClan1(Handle database, Handle handle, const char[] sError, DataPack inputPack)
+{
+	inputPack.Reset();
+	int client = inputPack.ReadCell();
+	char clanId[5];
+	inputPack.ReadString(clanId, sizeof(clanId));
+	//CloseHandle(inputPack);
+
+	if (!handle)
+	{
+		ThrowError("SQL query error in SqlQueryCallback_Command_JoinClan1: %d, '%s'", client, sError);
+	}
+
+	if (SQL_GetRowCount(handle) < 1)
+	{
+		ReplyToCommand(client, "\x07[Simple Player Stats] You do not have an active invitation to the '%s' clan.", clanId);
+		return;
+	}
+
+	char authId[35];
+	GetClientAuthId(client, AuthId_Steam2, authId, sizeof(authId));
+
+	char queryString[256];
+	SQL_FormatQuery(
+	 	_database, queryString, sizeof(queryString),
+	 	"SELECT * FROM pcs_player_to_clan_relationships WHERE AuthId = '%s'", authId);
+	SQL_TQuery(_database, SqlQueryCallback_Command_JoinClan2, queryString, inputPack);
+}
+
+public void SqlQueryCallback_Command_JoinClan2(Handle database, Handle handle, const char[] sError, DataPack inputPack)
+{
+	inputPack.Reset();
+	int client = inputPack.ReadCell();
+	char clanId[5];
+	inputPack.ReadString(clanId, sizeof(clanId));
+	//CloseHandle(inputPack);
+
+	if (!handle)
+	{
+		ThrowError("SQL query error in SqlQueryCallback_Command_JoinClan2: %d, '%s'", client, sError);
+	}
+
+	if (SQL_GetRowCount(handle) > 0)
+	{
+		ReplyToCommand(client, "\x07[Simple Player Stats] You are already in a clan. To join the '%s' clan you must first leave your current clan by entering: !leaveclan", clanId);
+		return;
+	}
+
+	char authId[35];
+	GetClientAuthId(client, AuthId_Steam2, authId, sizeof(authId));
+
+	char queryString[256];
+	SQL_FormatQuery(
+		_database, queryString, sizeof(queryString),
+		"INSERT INTO pcs_player_to_clan_relationships (AuthId, ClanId, RankInClan, JoinTimestamp) VALUES ('%s', '%s', %d, %d)",
+		authId, clanId, 3, GetTime());
+	SQL_TQuery(_database, SqlQueryCallback_Command_JoinClan3, queryString, inputPack);
+}
+
+public void SqlQueryCallback_Command_JoinClan3(Handle database, Handle handle, const char[] sError, DataPack inputPack)
+{
+	inputPack.Reset();
+	int client = inputPack.ReadCell();
+	char clanId[5];
+	inputPack.ReadString(clanId, sizeof(clanId));
+	CloseHandle(inputPack);
+
+	if (!handle)
+	{
+		ThrowError("SQL query error in SqlQueryCallback_Command_JoinClan3: %d, '%s'", client, sError);
+	}
+
+	char authId[35];
+	GetClientAuthId(client, AuthId_Steam2, authId, sizeof(authId));
+
+	char queryString[256];
+	SQL_FormatQuery(
+		_database, queryString, sizeof(queryString),
+		"DELETE FROM pcs_clan_invitations WHERE InviteeAuthId = '%s' AND ClanId = '%s'",
+		authId, clanId);
+	SQL_TQuery(_database, SqlQueryCallback_Default, queryString, inputPack);
+
+	ReplyToCommand(client, "\x07[Simple Player Stats] You have successfully joined the '%s' clan.", clanId);
 	UpdateClientName(client);
 }
 
@@ -1482,7 +1727,7 @@ public void SqlQueryCallback_Command_LeaveClan2(Handle database, Handle handle, 
 		ThrowError("SQL query error in SqlQueryCallback_Command_LeaveClan2: %d, '%s'", client, sError);
 	}
 
-	ReplyToCommand(client, "\x07[Simple Player Stats] You have left your clan.");
+	ReplyToCommand(client, "\x07[Simple Player Stats] You have successfully left your clan.");
 
 	UpdateClientName(client);
 }

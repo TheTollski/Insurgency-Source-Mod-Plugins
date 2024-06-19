@@ -20,7 +20,7 @@ int _postDbCallOutputCount = -1;
 
 public Plugin myinfo =
 {
-	name = "Simple Player Stats",
+	name = "Player & Clan Stats",
 	author = "Tollski",
 	description = "",
 	version = PLUGIN_VERSION,
@@ -44,7 +44,7 @@ public Plugin myinfo =
 
 public void OnPluginStart()
 {
-	CreateConVar("sm_simpleplayerstats_version", PLUGIN_VERSION, "Standard plugin version ConVar. Please don't change me!", FCVAR_REPLICATED|FCVAR_NOTIFY|FCVAR_DONTRECORD);
+	CreateConVar("sm_playerandclanstats_version", PLUGIN_VERSION, "Standard plugin version ConVar. Please don't change me!", FCVAR_REPLICATED|FCVAR_NOTIFY|FCVAR_DONTRECORD);
 	
 	HookEvent("controlpoint_captured", Event_ControlpointCaptured);
 	HookEvent("controlpoint_endtouch", Event_ControlpointEndtouch);
@@ -181,8 +181,8 @@ public Action Command_AllStats(int client, int args)
 
 	if (args != 4)
 	{
-		ReplyToCommand(client, "\x05[Simple Player Stats] Usage: sm_allstats [Type('Custom'|'Ranked'|'Startup'|'Total')] [SortColumn('ActiveTime'|'DeathsToEnemyPlayers'|'EnemyPlayerKills'|'LastConnection'|'Rank')] [Page] [CacheOutput('true'|'false')]");
-		ReplyToCommand(client, "\x05[Simple Player Stats] Using: sm_allstats %s %s %s %s", arg1, arg2, arg3, arg4);
+		ReplyToCommand(client, "\x05[Player & Clan Stats] Usage: sm_allstats [Type('Custom'|'Ranked'|'Startup'|'Total')] [SortColumn('ActiveTime'|'DeathsToEnemyPlayers'|'EnemyPlayerKills'|'LastConnection'|'Rank')] [Page] [CacheOutput('true'|'false')]");
+		ReplyToCommand(client, "\x05[Player & Clan Stats] Using: sm_allstats %s %s %s %s", arg1, arg2, arg3, arg4);
 	}
 
 	char recordType[32];
@@ -204,7 +204,7 @@ public Action Command_AllStats(int client, int args)
 	}
 	else
 	{
-		ReplyToCommand(client, "\x07[Simple Player Stats] Invalid type '%s'.", arg1);
+		ReplyToCommand(client, "\x07[Player & Clan Stats] Invalid type '%s'.", arg1);
 		return Plugin_Handled;
 	}
 
@@ -231,7 +231,7 @@ public Action Command_AllStats(int client, int args)
 	}
 	else
 	{
-		ReplyToCommand(client, "\x07[Simple Player Stats] Invalid sort column '%s'.", arg2);
+		ReplyToCommand(client, "\x07[Player & Clan Stats] Invalid sort column '%s'.", arg2);
 		return Plugin_Handled;
 	}
 
@@ -241,13 +241,13 @@ public Action Command_AllStats(int client, int args)
 
 	bool cacheOutput = StrEqual(arg4, "true", false);
 
-	ReplyToCommand(client, "\x05[Simple Player Stats] %s Stats are being printed in the console.", recordType);
+	ReplyToCommand(client, "\x05[Player & Clan Stats] %s Stats are being printed in the console.", recordType);
 	if (StrEqual(recordType, "Startup"))
 	{
 		char dateTime[32]; 
 		FormatTime(dateTime, sizeof(dateTime), "%F %R", _pluginStartTimestamp);
 
-		ReplyToCommand(client, "\x05[Simple Player Stats] Last startup: %s", dateTime);
+		ReplyToCommand(client, "\x05[Player & Clan Stats] Last startup: %s", dateTime);
 	}
 
 	DataPack pack = new DataPack();
@@ -277,15 +277,15 @@ public Action Command_AuditLogs(int client, int args)
 
 	if (args != 1)
 	{
-		ReplyToCommand(client, "\x05[Simple Player Stats] Usage: sm_auditlogs [Page]");
-		ReplyToCommand(client, "\x05[Simple Player Stats] Using: sm_auditlogs %s", arg1);
+		ReplyToCommand(client, "\x05[Player & Clan Stats] Usage: sm_auditlogs [Page]");
+		ReplyToCommand(client, "\x05[Player & Clan Stats] Using: sm_auditlogs %s", arg1);
 	}
 
 	int pageSize = 50;
 	int page = StringToInt(arg1);
 	int offset = (page - 1) * pageSize;
 
-	ReplyToCommand(client, "\x05[Simple Player Stats] Audit logs are being printed in the console.");
+	ReplyToCommand(client, "\x05[Player & Clan Stats] Audit logs are being printed in the console.");
 
 	char queryString[256];
 	SQL_FormatQuery(_database, queryString, sizeof(queryString), "SELECT * FROM sps_auditlogs ORDER BY Timestamp DESC LIMIT %d OFFSET %d", pageSize, offset);
@@ -297,7 +297,7 @@ public Action Command_CreateClan(int client, int args)
 {
 	if (args < 2)
 	{
-		ReplyToCommand(client, "\x05[Simple Player Stats] Usage: sm_createclan ClanTag ClanName");
+		ReplyToCommand(client, "\x05[Player & Clan Stats] Usage: sm_createclan ClanTag ClanName");
 		return Plugin_Handled;
 	}
 
@@ -306,7 +306,7 @@ public Action Command_CreateClan(int client, int args)
 
 	if (strlen(clanId) < 2 || strlen(clanId) > 4)
 	{
-		ReplyToCommand(client, "\x05[Simple Player Stats] Usage: ClanTag must be 2-4 characters long.");
+		ReplyToCommand(client, "\x05[Player & Clan Stats] Usage: ClanTag must be 2-4 characters long.");
 		return Plugin_Handled;
 	}
 
@@ -320,7 +320,7 @@ public Action Command_CreateClan(int client, int args)
 
 		if (strlen(clanName) + strlen(argx) > 64)
 		{
-			ReplyToCommand(client, "\x05[Simple Player Stats] Usage: ClanName must be less than 64 characters long.");
+			ReplyToCommand(client, "\x05[Player & Clan Stats] Usage: ClanName must be less than 64 characters long.");
 			return Plugin_Handled;
 		}
 
@@ -332,7 +332,7 @@ public Action Command_CreateClan(int client, int args)
 	pack.WriteString(clanId);
 	pack.WriteString(clanName);
 
-	ReplyToCommand(client, "\x05[Simple Player Stats] Processing createclan command, output will be printed in your console.");
+	ReplyToCommand(client, "\x05[Player & Clan Stats] Processing createclan command, output will be printed in your console.");
 
 	char queryString[256];
 	SQL_FormatQuery(
@@ -346,7 +346,7 @@ public Action Command_DeleteClan(int client, int args)
 {
 	if (args != 1)
 	{
-		ReplyToCommand(client, "\x05[Simple Player Stats] Usage: deleteclan ClanTag");
+		ReplyToCommand(client, "\x05[Player & Clan Stats] Usage: deleteclan ClanTag");
 		return Plugin_Handled;
 	}
 
@@ -360,7 +360,7 @@ public Action Command_DeleteClan(int client, int args)
 	pack.WriteCell(client);
 	pack.WriteString(clanId);
 
-	ReplyToCommand(client, "\x05[Simple Player Stats] Processing deleteclan command, output will be printed in your console.");
+	ReplyToCommand(client, "\x05[Player & Clan Stats] Processing deleteclan command, output will be printed in your console.");
 
 	char queryString[256];
 	SQL_FormatQuery(
@@ -394,8 +394,8 @@ public Action Command_GetCachedOutput(int client, int args)
 
 	if (args != 2)
 	{
-		ReplyToCommand(client, "\x05[Simple Player Stats] Usage: sm_getcachedoutput [Start] [End]");
-		ReplyToCommand(client, "\x05[Simple Player Stats] Using: sm_getcachedoutput %s %s", arg1, arg2);
+		ReplyToCommand(client, "\x05[Player & Clan Stats] Usage: sm_getcachedoutput [Start] [End]");
+		ReplyToCommand(client, "\x05[Player & Clan Stats] Using: sm_getcachedoutput %s %s", arg1, arg2);
 	}
 
 	int start = StringToInt(arg1);
@@ -403,17 +403,17 @@ public Action Command_GetCachedOutput(int client, int args)
 
 	if (start > end)
 	{
-		ReplyToCommand(client, "\x07[Simple Player Stats] End must be greater than or equal to start.", arg2);
+		ReplyToCommand(client, "\x07[Player & Clan Stats] End must be greater than or equal to start.", arg2);
 		return Plugin_Handled;
 	}
 	if (start < 0)
 	{
-		ReplyToCommand(client, "\x07[Simple Player Stats] Start must be greater than or equal to 0.", arg2);
+		ReplyToCommand(client, "\x07[Player & Clan Stats] Start must be greater than or equal to 0.", arg2);
 		return Plugin_Handled;
 	}
 	if (end > 100)
 	{
-		ReplyToCommand(client, "\x07[Simple Player Stats] End must be less than or equal to 100.", arg2);
+		ReplyToCommand(client, "\x07[Player & Clan Stats] End must be less than or equal to 100.", arg2);
 		return Plugin_Handled;
 	}
 
@@ -429,11 +429,11 @@ public Action Command_InviteToClan(int client, int args)
 {
 	if (args != 1)
 	{
-		ReplyToCommand(client, "\x07[Simple Player Stats] Usage: sm_invitetoclan ClientId");
+		ReplyToCommand(client, "\x07[Player & Clan Stats] Usage: sm_invitetoclan ClientId");
 
-		ReplyToCommand(client, "\x07[Simple Player Stats] Valid ClientIds:");
-		ReplyToCommand(client, "\x07[Simple Player Stats] ClientId | PlayerName");
-		ReplyToCommand(client, "\x07[Simple Player Stats] -------- | ----------");
+		ReplyToCommand(client, "\x07[Player & Clan Stats] Valid ClientIds:");
+		ReplyToCommand(client, "\x07[Player & Clan Stats] ClientId | PlayerName");
+		ReplyToCommand(client, "\x07[Player & Clan Stats] -------- | ----------");
 
 		for (int i = 1; i < MaxClients + 1; i++)
 		{
@@ -444,7 +444,7 @@ public Action Command_InviteToClan(int client, int args)
 
 			char otherClientName[MAX_NAME_LENGTH];
 			GetClientName(i, otherClientName, MAX_NAME_LENGTH);
-			ReplyToCommand(client, "\x07[Simple Player Stats] %8d | %s", i, otherClientName);
+			ReplyToCommand(client, "\x07[Player & Clan Stats] %8d | %s", i, otherClientName);
 		}
 
 		return Plugin_Handled;
@@ -457,7 +457,7 @@ public Action Command_InviteToClan(int client, int args)
 
 	if (inviteeClient < 1 || inviteeClient > MaxClients || inviteeClient == client || !IsClientInGame(inviteeClient) || IsFakeClient(inviteeClient))
 	{
-		ReplyToCommand(client, "\x05[Simple Player Stats] Usage: You did not select a valid ClientId.");
+		ReplyToCommand(client, "\x05[Player & Clan Stats] Usage: You did not select a valid ClientId.");
 		return Plugin_Handled;
 	}
 
@@ -468,7 +468,7 @@ public Action Command_InviteToClan(int client, int args)
 	pack.WriteCell(client);
 	pack.WriteCell(inviteeClient);
 
-	ReplyToCommand(client, "\x05[Simple Player Stats] Processing invitetoclan command, output will be printed in your console.");
+	ReplyToCommand(client, "\x05[Player & Clan Stats] Processing invitetoclan command, output will be printed in your console.");
 
 	char queryString[256];
 	SQL_FormatQuery(
@@ -482,7 +482,7 @@ public Action Command_JoinClan(int client, int args)
 {
 	if (args != 1)
 	{
-		ReplyToCommand(client, "\x07[Simple Player Stats] Usage: sm_joinclan ClanTag");
+		ReplyToCommand(client, "\x07[Player & Clan Stats] Usage: sm_joinclan ClanTag");
 		return Plugin_Handled;
 	}
 
@@ -496,7 +496,7 @@ public Action Command_JoinClan(int client, int args)
 	pack.WriteCell(client);
 	pack.WriteString(arg1);
 
-	ReplyToCommand(client, "\x05[Simple Player Stats] Processing joinclan command, output will be printed in your console.");
+	ReplyToCommand(client, "\x05[Player & Clan Stats] Processing joinclan command, output will be printed in your console.");
 
 	char queryString[256];
 	SQL_FormatQuery(
@@ -531,15 +531,15 @@ public Action Command_Leaderboard(int client, int args)
 
 	if (args != 2)
 	{
-		ReplyToCommand(client, "\x05[Simple Player Stats] Usage: sm_leaderboard [StatsType('clan'|'player')] [CacheOutput('true'|'false')]");
-		ReplyToCommand(client, "\x05[Simple Player Stats] Using: sm_leaderboard %s %s", arg1, arg2);
+		ReplyToCommand(client, "\x05[Player & Clan Stats] Usage: sm_leaderboard [StatsType('clan'|'player')] [CacheOutput('true'|'false')]");
+		ReplyToCommand(client, "\x05[Player & Clan Stats] Using: sm_leaderboard %s %s", arg1, arg2);
 	}
 
 	bool isClanLeaderboard = StrEqual(arg1, "clan", false);
 	bool isPlayerLeaderboard = StrEqual(arg1, "player", false);
 	if (!isClanLeaderboard && !isPlayerLeaderboard)
 	{
-		ReplyToCommand(client, "\x05[Simple Player Stats] The first argument must be either 'clan' or 'player'.", arg2);
+		ReplyToCommand(client, "\x05[Player & Clan Stats] The first argument must be either 'clan' or 'player'.", arg2);
 		return Plugin_Handled;
 	}
 
@@ -548,11 +548,11 @@ public Action Command_Leaderboard(int client, int args)
 	bool cacheOutput = StrEqual(arg2, "true", false);
 	if (cacheOutput && !isAdmin)
 	{
-		ReplyToCommand(client, "\x05[Simple Player Stats] Only admins can set CacheOutput to true.", arg2);
+		ReplyToCommand(client, "\x05[Player & Clan Stats] Only admins can set CacheOutput to true.", arg2);
 		return Plugin_Handled;
 	}
 
-	ReplyToCommand(client, "\x05[Simple Player Stats] The %s leaderboard is being printed in the console.", arg1);
+	ReplyToCommand(client, "\x05[Player & Clan Stats] The %s leaderboard is being printed in the console.", arg1);
 
 	DataPack pack = new DataPack();
 	pack.WriteCell(client);
@@ -584,14 +584,14 @@ public Action Command_LeaveClan(int client, int args)
 {
 	if (args != 0)
 	{
-		ReplyToCommand(client, "\x05[Simple Player Stats] Usage: sm_leaveclan");
+		ReplyToCommand(client, "\x05[Player & Clan Stats] Usage: sm_leaveclan");
 		return Plugin_Handled;
 	}
 
 	char authId[35];
 	GetClientAuthId(client, AuthId_Steam2, authId, sizeof(authId));
 
-	ReplyToCommand(client, "\x05[Simple Player Stats] Processing leaveclan command, output will be printed in your console.");
+	ReplyToCommand(client, "\x05[Player & Clan Stats] Processing leaveclan command, output will be printed in your console.");
 
 	char queryString[256];
 	SQL_FormatQuery(
@@ -614,8 +614,8 @@ public Action Command_MyStats(int client, int args)
 	}
 
 	if (args != 1) {
-		ReplyToCommand(client, "\x05[Simple Player Stats] Usage: sm_mystats [Type('Custom'|'Ranked'|'Startup'|'Total')]");
-		ReplyToCommand(client, "\x05[Simple Player Stats] Using: sm_mystats %s", arg1);
+		ReplyToCommand(client, "\x05[Player & Clan Stats] Usage: sm_mystats [Type('Custom'|'Ranked'|'Startup'|'Total')]");
+		ReplyToCommand(client, "\x05[Player & Clan Stats] Using: sm_mystats %s", arg1);
 	}
 
 	char recordType[32];
@@ -637,26 +637,26 @@ public Action Command_MyStats(int client, int args)
 	}
 	else
 	{
-		ReplyToCommand(client, "\x07[Simple Player Stats] Invalid type '%s'.", arg1);
+		ReplyToCommand(client, "\x07[Player & Clan Stats] Invalid type '%s'.", arg1);
 		return Plugin_Handled;
 	}
 
 	if (client == 0)
 	{
-		ReplyToCommand(client, "[Simple Player Stats] You can only run this command from a game client.");
+		ReplyToCommand(client, "[Player & Clan Stats] You can only run this command from a game client.");
 		return Plugin_Handled;
 	}
 
 	char authId[35];
 	GetClientAuthId(client, AuthId_Steam2, authId, sizeof(authId));
 
-	ReplyToCommand(client, "\x05[Simple Player Stats] Your %s stats are being printed in the console.", recordType);
+	ReplyToCommand(client, "\x05[Player & Clan Stats] Your %s stats are being printed in the console.", recordType);
 	if (StrEqual(recordType, "Startup"))
 	{
 		char dateTime[32]; 
 		FormatTime(dateTime, sizeof(dateTime), "%F %R", _pluginStartTimestamp);
 
-		ReplyToCommand(client, "\x05[Simple Player Stats] Last startup: %s", dateTime);
+		ReplyToCommand(client, "\x05[Player & Clan Stats] Last startup: %s", dateTime);
 	}
 
 	char queryString[1024];
@@ -679,8 +679,8 @@ public Action Command_ResetStats(int client, int args)
 
 		if (args != 1)
 	{
-		ReplyToCommand(client, "\x05[Simple Player Stats] Usage: sm_resetstats [Type('Custom'|'Ranked')]");
-		ReplyToCommand(client, "\x05[Simple Player Stats] Using: sm_resetstats %s", arg1);
+		ReplyToCommand(client, "\x05[Player & Clan Stats] Usage: sm_resetstats [Type('Custom'|'Ranked')]");
+		ReplyToCommand(client, "\x05[Player & Clan Stats] Using: sm_resetstats %s", arg1);
 	}
 
 	char recordType[32];
@@ -694,11 +694,11 @@ public Action Command_ResetStats(int client, int args)
 	}
 	else
 	{
-		ReplyToCommand(client, "\x07[Simple Player Stats] Invalid type '%s'.", arg1);
+		ReplyToCommand(client, "\x07[Player & Clan Stats] Invalid type '%s'.", arg1);
 		return Plugin_Handled;
 	}
 
-	ReplyToCommand(client, "\x05[Simple Player Stats] Resetting stats of all players for the %s Type.", recordType);
+	ReplyToCommand(client, "\x05[Player & Clan Stats] Resetting stats of all players for the %s Type.", recordType);
 
 	DataPack pack = new DataPack();
 	pack.WriteString(recordType);
@@ -1077,10 +1077,10 @@ public void Event_PlayerTeam(Event event, const char[] name, bool dontBroadcast)
 public void ConnectToDatabase()
 {
 	char error[256];
-	_database = SQLite_UseDatabase("simpleplayerstats", error, sizeof(error));
+	_database = SQLite_UseDatabase("playerandclanstats", error, sizeof(error));
 	if (_database == INVALID_HANDLE)
 	{
-		SetFailState("Failed to connect to the database 'simpleplayerstats' with error: '%s'", error);
+		SetFailState("Failed to connect to the database 'playerandclanstats' with error: '%s'", error);
 		return;
 	}
 
@@ -1278,7 +1278,7 @@ public void SqlQueryCallback_Command_AllStats1(Handle database, Handle handle, c
 
 	if (SQL_GetRowCount(handle) == 0)
 	{
-		ReplyToCommand(client, "\x07[Simple Player Stats] No rows found for selected query.");
+		ReplyToCommand(client, "\x07[Player & Clan Stats] No rows found for selected query.");
 		return;
 	}
 
@@ -1349,7 +1349,7 @@ public void SqlQueryCallback_Command_AuditLogs1(Handle database, Handle handle, 
 
 	if (SQL_GetRowCount(handle) == 0)
 	{
-		ReplyToCommand(client, "\x07[Simple Player Stats] No rows found for selected query.");
+		ReplyToCommand(client, "\x07[Player & Clan Stats] No rows found for selected query.");
 		return;
 	}
 
@@ -1384,7 +1384,7 @@ public void SqlQueryCallback_Command_CreateClan1(Handle database, Handle handle,
 
 	if (SQL_GetRowCount(handle) > 0)
 	{
-		ReplyToCommand(client, "\x07[Simple Player Stats] A clan already exists with the tag '%s'.", clanId);
+		ReplyToCommand(client, "\x07[Player & Clan Stats] A clan already exists with the tag '%s'.", clanId);
 		return;
 	}
 
@@ -1412,7 +1412,7 @@ public void SqlQueryCallback_Command_CreateClan2(Handle database, Handle handle,
 
 	if (SQL_GetRowCount(handle) > 0)
 	{
-		ReplyToCommand(client, "\x07[Simple Player Stats] A clan already exists with the name '%s'.", clanName);
+		ReplyToCommand(client, "\x07[Player & Clan Stats] A clan already exists with the name '%s'.", clanName);
 		return;
 	}
 
@@ -1443,7 +1443,7 @@ public void SqlQueryCallback_Command_CreateClan3(Handle database, Handle handle,
 
 	if (SQL_GetRowCount(handle) > 0)
 	{
-		ReplyToCommand(client, "\x07[Simple Player Stats] You are already in a clan. You must first leave your clan before creating a new one.");
+		ReplyToCommand(client, "\x07[Player & Clan Stats] You are already in a clan. You must first leave your clan before creating a new one.");
 		return;
 	}
 
@@ -1496,7 +1496,7 @@ public void SqlQueryCallback_Command_CreateClan5(Handle database, Handle handle,
 		ThrowError("SQL query error in SqlQueryCallback_Command_CreateClan5: %d, '%s'", client, sError);
 	}
 
-	ReplyToCommand(client, "\x07[Simple Player Stats] You successfully created clan '%s'.", clanId);
+	ReplyToCommand(client, "\x07[Player & Clan Stats] You successfully created clan '%s'.", clanId);
 
 	UpdateClientName(client);
 	EnsureClanCustomStatsDatabaseRecordExists(clanId);
@@ -1520,7 +1520,7 @@ public void SqlQueryCallback_Command_DeleteClan1(Handle database, Handle handle,
 
 	if (SQL_GetRowCount(handle) != 1)
 	{
-		ReplyToCommand(client, "\x07[Simple Player Stats] You are not in the '%s' clan.", clanId);
+		ReplyToCommand(client, "\x07[Player & Clan Stats] You are not in the '%s' clan.", clanId);
 		return;
 	}
 
@@ -1530,7 +1530,7 @@ public void SqlQueryCallback_Command_DeleteClan1(Handle database, Handle handle,
 
 	if (rankInClan != 1)
 	{
-		ReplyToCommand(client, "\x07[Simple Player Stats] You cannot delete a clan that you don't own.");
+		ReplyToCommand(client, "\x07[Player & Clan Stats] You cannot delete a clan that you don't own.");
 		return;
 	}
 
@@ -1594,7 +1594,7 @@ public void SqlQueryCallback_Command_DeleteClan4(Handle database, Handle handle,
 		ThrowError("SQL query error in SqlQueryCallback_Command_DeleteClan4: %d, '%s'", client, sError);
 	}
 
-	ReplyToCommand(client, "\x07[Simple Player Stats] You successfully deleted clan '%s'.", clanId);
+	ReplyToCommand(client, "\x07[Player & Clan Stats] You successfully deleted clan '%s'.", clanId);
 
 	// TODO: We should update the name of anyone in that clan who might be currently connected, but this works for now.
 	UpdateClientName(client);
@@ -1614,7 +1614,7 @@ public void SqlQueryCallback_Command_InviteToClan1(Handle database, Handle handl
 
 	if (SQL_GetRowCount(handle) != 1)
 	{
-		ReplyToCommand(client, "\x07[Simple Player Stats] You are not in a clan.");
+		ReplyToCommand(client, "\x07[Player & Clan Stats] You are not in a clan.");
 		return;
 	}
 
@@ -1626,7 +1626,7 @@ public void SqlQueryCallback_Command_InviteToClan1(Handle database, Handle handl
 
 	if (rankInClan > 2)
 	{
-		ReplyToCommand(client, "\x07[Simple Player Stats] You cannot invite other people to a clan if you are not a clan owner or officer.");
+		ReplyToCommand(client, "\x07[Player & Clan Stats] You cannot invite other people to a clan if you are not a clan owner or officer.");
 		return;
 	}
 
@@ -1665,9 +1665,9 @@ public void SqlQueryCallback_Command_InviteToClan2(Handle database, Handle handl
 	char inviteeName[MAX_NAME_LENGTH];
 	GetClientName(inviteeClient, inviteeName, MAX_NAME_LENGTH);
 
-	ReplyToCommand(client, "\x07[Simple Player Stats] You successfully invited '%s' to join your clan.", inviteeName);
+	ReplyToCommand(client, "\x07[Player & Clan Stats] You successfully invited '%s' to join your clan.", inviteeName);
 
-	PrintToChat(inviteeClient, "\x07f5bf03[Simple Player Stats] You have been invited to join the '%s' clan. To accept this invitation, enter the command: !joinclan %s", clanId, clanId);
+	PrintToChat(inviteeClient, "\x07f5bf03[Player & Clan Stats] You have been invited to join the '%s' clan. To accept this invitation, enter the command: !joinclan %s", clanId, clanId);
 }
 
 public void SqlQueryCallback_Command_JoinClan1(Handle database, Handle handle, const char[] sError, DataPack inputPack)
@@ -1685,7 +1685,7 @@ public void SqlQueryCallback_Command_JoinClan1(Handle database, Handle handle, c
 
 	if (SQL_GetRowCount(handle) < 1)
 	{
-		ReplyToCommand(client, "\x07[Simple Player Stats] You do not have an active invitation to the '%s' clan.", clanId);
+		ReplyToCommand(client, "\x07[Player & Clan Stats] You do not have an active invitation to the '%s' clan.", clanId);
 		return;
 	}
 
@@ -1714,7 +1714,7 @@ public void SqlQueryCallback_Command_JoinClan2(Handle database, Handle handle, c
 
 	if (SQL_GetRowCount(handle) > 0)
 	{
-		ReplyToCommand(client, "\x07[Simple Player Stats] You are already in a clan. To join the '%s' clan you must first leave your current clan by entering: !leaveclan", clanId);
+		ReplyToCommand(client, "\x07[Player & Clan Stats] You are already in a clan. To join the '%s' clan you must first leave your current clan by entering: !leaveclan", clanId);
 		return;
 	}
 
@@ -1752,7 +1752,7 @@ public void SqlQueryCallback_Command_JoinClan3(Handle database, Handle handle, c
 		authId, clanId);
 	SQL_TQuery(_database, SqlQueryCallback_Default, queryString, inputPack);
 
-	ReplyToCommand(client, "\x07[Simple Player Stats] You have successfully joined the '%s' clan.", clanId);
+	ReplyToCommand(client, "\x07[Player & Clan Stats] You have successfully joined the '%s' clan.", clanId);
 	UpdateClientName(client);
 }
 
@@ -1771,7 +1771,7 @@ public void SqlQueryCallback_Command_Leaderboard1(Handle database, Handle handle
 
 	if (SQL_GetRowCount(handle) == 0)
 	{
-		ReplyToCommand(client, "\x07[Simple Player Stats] No rows found for selected query.");
+		ReplyToCommand(client, "\x07[Player & Clan Stats] No rows found for selected query.");
 		return;
 	}
 
@@ -1865,7 +1865,7 @@ public void SqlQueryCallback_Command_LeaveClan1(Handle database, Handle handle, 
 
 	if (SQL_GetRowCount(handle) == 0)
 	{
-		ReplyToCommand(client, "\x07[Simple Player Stats] You are not in a clan.");
+		ReplyToCommand(client, "\x07[Player & Clan Stats] You are not in a clan.");
 		return;
 	}
 
@@ -1877,7 +1877,7 @@ public void SqlQueryCallback_Command_LeaveClan1(Handle database, Handle handle, 
 
 	if (rankInClan == 1)
 	{
-		ReplyToCommand(client, "\x07[Simple Player Stats] You cannot leave a clan that you own. You must delete the clan or transfer ownership of the clan to a different player.");
+		ReplyToCommand(client, "\x07[Player & Clan Stats] You cannot leave a clan that you own. You must delete the clan or transfer ownership of the clan to a different player.");
 		return;
 	}
 
@@ -1895,7 +1895,7 @@ public void SqlQueryCallback_Command_LeaveClan2(Handle database, Handle handle, 
 		ThrowError("SQL query error in SqlQueryCallback_Command_LeaveClan2: %d, '%s'", client, sError);
 	}
 
-	ReplyToCommand(client, "\x07[Simple Player Stats] You have successfully left your clan.");
+	ReplyToCommand(client, "\x07[Player & Clan Stats] You have successfully left your clan.");
 
 	UpdateClientName(client);
 }
@@ -1935,7 +1935,7 @@ public void SqlQueryCallback_Command_MyStats1(Handle database, Handle handle, co
 
 	ReplyToCommand(
 		client,
-		"\x05[Simple Player Stats] Your Stats -- ConnectionCount: %d - ConnectedTime: %dh%dm - ActiveTime: %dh%dm - TotalKills: %d (%d enemy bots, %d enemy players, %d team) - TotalDeaths: %d (%d enemy bots, %d enemy players, %d self, %d team, %d other) - Objectives: %d (%d control points captured, %d flags picked up, %d flags captured, %d objectives destroyed)",
+		"\x05[Player & Clan Stats] Your Stats -- ConnectionCount: %d - ConnectedTime: %dh%dm - ActiveTime: %dh%dm - TotalKills: %d (%d enemy bots, %d enemy players, %d team) - TotalDeaths: %d (%d enemy bots, %d enemy players, %d self, %d team, %d other) - Objectives: %d (%d control points captured, %d flags picked up, %d flags captured, %d objectives destroyed)",
 		pConnectionCount, pConnectedTime / 3600, pConnectedTime % 3600 / 60, pActiveTime / 3600, pActiveTime % 3600 / 60,
 		pEnemyBotKills + pEnemyPlayerKills + pTeamKills, pEnemyBotKills, pEnemyPlayerKills, pTeamKills,
 		pDeathsToEnemyBots + pDeathsToEnemyPlayers + pDeathsToSelf + pDeathsToTeam + pDeathsToOther, pDeathsToEnemyBots, pDeathsToEnemyPlayers, pDeathsToSelf, pDeathsToTeam, pDeathsToOther,
@@ -1962,7 +1962,7 @@ public void SqlQueryCallback_Command_MyStats1(Handle database, Handle handle, co
 
 		ReplyToCommand(
 			client,
-			"\x05[Simple Player Stats] Your Clan's Stats -- ConnectionCount: %d - ConnectedTime: %dh%dm - ActiveTime: %dh%dm - TotalKills: %d (%d enemy bots, %d enemy players, %d team) - TotalDeaths: %d (%d enemy bots, %d enemy players, %d self, %d team, %d other) - Objectives: %d (%d control points captured, %d flags picked up, %d flags captured, %d objectives destroyed)",
+			"\x05[Player & Clan Stats] Your Clan's Stats -- ConnectionCount: %d - ConnectedTime: %dh%dm - ActiveTime: %dh%dm - TotalKills: %d (%d enemy bots, %d enemy players, %d team) - TotalDeaths: %d (%d enemy bots, %d enemy players, %d self, %d team, %d other) - Objectives: %d (%d control points captured, %d flags picked up, %d flags captured, %d objectives destroyed)",
 			cConnectionCount, cConnectedTime / 3600, cConnectedTime % 3600 / 60, cActiveTime / 3600, cActiveTime % 3600 / 60,
 			cEnemyBotKills + cEnemyPlayerKills + cTeamKills, cEnemyBotKills, cEnemyPlayerKills, cTeamKills,
 			cDeathsToEnemyBots + cDeathsToEnemyPlayers + cDeathsToSelf + cDeathsToTeam + cDeathsToOther, cDeathsToEnemyBots, cDeathsToEnemyPlayers, cDeathsToSelf, cDeathsToTeam, cDeathsToOther,

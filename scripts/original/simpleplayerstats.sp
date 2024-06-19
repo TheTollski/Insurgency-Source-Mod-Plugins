@@ -516,35 +516,67 @@ public Action Command_Leaderboard(int client, int args)
 	}
 	else
 	{
-		arg1 = "false";
+		arg1 = "player";
 	}
 
-	if (args != 1)
+	char arg2[32];
+	if (args >= 2)
 	{
-		ReplyToCommand(client, "\x05[Simple Player Stats] Usage: sm_leaderboard [CacheOutput('true'|'false')]");
-		ReplyToCommand(client, "\x05[Simple Player Stats] Using: sm_leaderboard %s", arg1);
+		GetCmdArg(2, arg2, sizeof(arg2));
+	}
+	else
+	{
+		arg2 = "false";
+	}
+
+	if (args != 2)
+	{
+		ReplyToCommand(client, "\x05[Simple Player Stats] Usage: sm_leaderboard [StatsType('clan'|'player')] [CacheOutput('true'|'false')]");
+		ReplyToCommand(client, "\x05[Simple Player Stats] Using: sm_leaderboard %s %s", arg1, arg2);
+	}
+
+	bool isClanLeaderboard = StrEqual(arg1, "clan", false);
+	bool isPlayerLeaderboard = StrEqual(arg1, "player", false);
+	if (!isClanLeaderboard && !isPlayerLeaderboard)
+	{
+		ReplyToCommand(client, "\x05[Simple Player Stats] The first argument must be either 'clan' or 'player'.", arg2);
+		return Plugin_Handled;
 	}
 
 	bool isAdmin = CheckCommandAccess(client, "adminaccesscheckKick", ADMFLAG_KICK);
 
-	bool cacheOutput = StrEqual(arg1, "true", false);
+	bool cacheOutput = StrEqual(arg2, "true", false);
 	if (cacheOutput && !isAdmin)
 	{
-		ReplyToCommand(client, "\x05[Simple Player Stats] Only admins can set CacheOutput to true.", arg1);
+		ReplyToCommand(client, "\x05[Simple Player Stats] Only admins can set CacheOutput to true.", arg2);
 		return Plugin_Handled;
 	}
 
-	ReplyToCommand(client, "\x05[Simple Player Stats] The leaderboard is being printed in the console.");
+	ReplyToCommand(client, "\x05[Simple Player Stats] The %s leaderboard is being printed in the console.", arg1);
 
 	DataPack pack = new DataPack();
 	pack.WriteCell(client);
+	pack.WriteCell(isPlayerLeaderboard);
 	pack.WriteCell(cacheOutput);
 
-	char queryString[256];
-	SQL_FormatQuery(
-		_database, queryString, sizeof(queryString),
-		"SELECT * FROM sps_players WHERE RecordType = 'Ranked' ORDER BY RankPoints DESC LIMIT 99");
-	SQL_TQuery(_database, SqlQueryCallback_Command_Leaderboard1, queryString, pack);
+	if (isClanLeaderboard)
+	{
+		char queryString[256];
+		SQL_FormatQuery(
+			_database, queryString, sizeof(queryString),
+			"SELECT * FROM pcs_clan_stats AS cs INNER JOIN pcs_clans AS c ON cs.ClanId = c.ClanId WHERE RecordType = 'Ranked' ORDER BY RankPoints DESC LIMIT 99");
+		SQL_TQuery(_database, SqlQueryCallback_Command_Leaderboard1, queryString, pack);
+	}
+	if (isPlayerLeaderboard)
+	{
+		char queryString[256];
+		SQL_FormatQuery(
+			_database, queryString, sizeof(queryString),
+			"SELECT * FROM sps_players WHERE RecordType = 'Ranked' ORDER BY RankPoints DESC LIMIT 99");
+		SQL_TQuery(_database, SqlQueryCallback_Command_Leaderboard1, queryString, pack);
+	}
+
+	
 	return Plugin_Handled;
 }
 
@@ -1728,6 +1760,7 @@ public void SqlQueryCallback_Command_Leaderboard1(Handle database, Handle handle
 {
 	inputPack.Reset();
 	int client = inputPack.ReadCell();
+	bool isPlayerLeaderboard = inputPack.ReadCell();
 	bool cacheOutput = inputPack.ReadCell();
 	CloseHandle(inputPack);
 
@@ -1742,9 +1775,20 @@ public void SqlQueryCallback_Command_Leaderboard1(Handle database, Handle handle
 		return;
 	}
 
-	char header1[256] = "## | PlayerName                     | Rank | Rank (Full)                      | Bot Kills | Player Kills | Objectives";
+	char header1[256];
+	char header2[256];
+	if (isPlayerLeaderboard)
+	{
+		header1 = "## | PlayerName                     | Rank | Rank (Full)                      | Points    | Bot Kills | Player Kills | Objectives";
+		header2 = "-- | ------------------------------ | ---- | -------------------------------- | --------- | --------- | ------------ | ----------";
+	}
+	else
+	{
+		header1 = "## | ClanTag | ClanName                                                         | Points    | Bot Kills | Player Kills | Objectives";
+		header2 = "-- | ------- | ---------------------------------------------------------------- | --------- | --------- | ------------ | ----------";
+	}
+
 	ReplyToCommand(client, header1);
-	char header2[256] = "-- | ------------------------------ | ---- | -------------------------------- | --------- | ------------ | ----------";
 	ReplyToCommand(client, header2);
 
 	if (cacheOutput)
@@ -1757,27 +1801,50 @@ public void SqlQueryCallback_Command_Leaderboard1(Handle database, Handle handle
 	int count = 0;
 	while (SQL_FetchRow(handle))
 	{
-		char playerName[31]; // Cut off anything past 30 characters in a player's name.
-		SQL_FetchString(handle, 2, playerName, sizeof(playerName));
-		int enemyBotKills = SQL_FetchInt(handle, 8);
-		int enemyPlayerKills = SQL_FetchInt(handle, 9);
-		int controlPointsCaptured = SQL_FetchInt(handle, 16);
-		int flagsCaptured = SQL_FetchInt(handle, 17);
-		int flagsPickedUp = SQL_FetchInt(handle, 18);
-		int objectivesDestroyed = SQL_FetchInt(handle, 19);
-		int rankPoints = SQL_FetchInt(handle, 20);
-
-		char rankLongName[32];
-		char rankShortName[5];
-		int rankId = GetRank(rankPoints, rankShortName, sizeof(rankShortName), rankLongName, sizeof(rankLongName));
-
 		char output[1024];
-		Format(output, 1024, 
-			"%2d | %30s | %4s | %32s | %9d | %12d | %10d ",
-			count + 1, playerName, rankShortName, rankLongName,
-			enemyBotKills, enemyPlayerKills,
-			controlPointsCaptured + flagsPickedUp + flagsCaptured + objectivesDestroyed);
+		if (isPlayerLeaderboard)
+		{
+			char playerName[31]; // Cut off anything past 30 characters in a player's name.
+			SQL_FetchString(handle, 2, playerName, sizeof(playerName));
+			int enemyBotKills = SQL_FetchInt(handle, 8);
+			int enemyPlayerKills = SQL_FetchInt(handle, 9);
+			int controlPointsCaptured = SQL_FetchInt(handle, 16);
+			int flagsCaptured = SQL_FetchInt(handle, 17);
+			int flagsPickedUp = SQL_FetchInt(handle, 18);
+			int objectivesDestroyed = SQL_FetchInt(handle, 19);
+			int rankPoints = SQL_FetchInt(handle, 20);
 
+			char rankLongName[32];
+			char rankShortName[5];
+			int rankId = GetRank(rankPoints, rankShortName, sizeof(rankShortName), rankLongName, sizeof(rankLongName));
+
+			Format(output, 1024, 
+				"%2d | %30s | %4s | %32s | %9d | %9d | %12d | %10d ",
+				count + 1, playerName, rankShortName, rankLongName,
+				rankPoints, enemyBotKills, enemyPlayerKills,
+				controlPointsCaptured + flagsPickedUp + flagsCaptured + objectivesDestroyed);
+		}
+		else
+		{
+			char clanId[5];
+			SQL_FetchString(handle, 0, clanId, sizeof(clanId));
+			int enemyBotKills = SQL_FetchInt(handle, 5);
+			int enemyPlayerKills = SQL_FetchInt(handle, 6);
+			int controlPointsCaptured = SQL_FetchInt(handle, 13);
+			int flagsCaptured = SQL_FetchInt(handle, 14);
+			int flagsPickedUp = SQL_FetchInt(handle, 15);
+			int objectivesDestroyed = SQL_FetchInt(handle, 16);
+			int rankPoints = SQL_FetchInt(handle, 17);
+			char clanName[65];
+			SQL_FetchString(handle, 19, clanName, sizeof(clanName));
+
+			Format(output, 1024, 
+				"%2d | %7s | %64s | %9d | %9d | %12d | %10d ",
+				count + 1, clanId, clanName,
+				rankPoints, enemyBotKills, enemyPlayerKills,
+				controlPointsCaptured + flagsPickedUp + flagsCaptured + objectivesDestroyed);
+		}
+		
 		ReplyToCommand(client, output);
 		count++;
 
@@ -2175,7 +2242,7 @@ public void SqlQueryCallback_Command_UpdateClientRank1(Handle database, Handle h
 		authId);
 	SQL_TQuery(_database, SqlQueryCallback_Default, queryString);
 
-	char queryString2[256];
+	char queryString2[512];
 	SQL_FormatQuery(
 		_database, queryString2, sizeof(queryString2),
 		"UPDATE pcs_clan_stats SET RankPoints = ConnectedTime / 60 + ActiveTime / 6 + EnemyBotKills * 10 + EnemyPlayerKills * 100 + ControlPointsCaptured * 100 + FlagsCaptured * 300 + FlagsPickedUp * 100 WHERE ClanId = (SELECT ClanId FROM pcs_player_to_clan_relationships WHERE AuthId = '%s')",

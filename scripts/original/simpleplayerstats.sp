@@ -627,8 +627,8 @@ public Action Command_MyStats(int client, int args)
 		ReplyToCommand(client, "\x05[Simple Player Stats] Last startup: %s", dateTime);
 	}
 
-	char queryString[256];
-	SQL_FormatQuery(_database, queryString, sizeof(queryString), "SELECT * FROM sps_players WHERE AuthId = '%s' AND RecordType = '%s'", authId, recordType);
+	char queryString[1024];
+	SQL_FormatQuery(_database, queryString, sizeof(queryString), "SELECT p.ConnectionCount, p.ConnectedTime, p.ActiveTime, p.EnemyBotKills, p.EnemyPlayerKills, p.TeamKills, p.DeathsToEnemyBots, p.DeathsToEnemyPlayers, p.DeathsToSelf, p.DeathsToTeam, p.DeathsToOther, p.ControlPointsCaptured, p.FlagsCaptured, p.FlagsPickedUp, p.ObjectivesDestroyed, c.ConnectionCount, c.ConnectedTime, c.ActiveTime, c.EnemyBotKills, c.EnemyPlayerKills, c.TeamKills, c.DeathsToEnemyBots, c.DeathsToEnemyPlayers, c.DeathsToSelf, c.DeathsToTeam, c.DeathsToOther, c.ControlPointsCaptured, c.FlagsCaptured, c.FlagsPickedUp, c.ObjectivesDestroyed FROM sps_players AS p LEFT JOIN pcs_player_to_clan_relationships AS ptcr ON p.AuthId = ptcr.AuthId LEFT JOIN pcs_clan_stats AS c ON ptcr.ClanId = c.ClanId AND c.RecordType = '%s' WHERE p.AuthId = '%s' AND p.RecordType = '%s'", recordType, authId, recordType);
 	SQL_TQuery(_database, SqlQueryCallback_Command_MyStats1, queryString, client);
 	return Plugin_Handled;
 }
@@ -701,6 +701,10 @@ public void Event_ControlpointCaptured(Event event, const char[] name, bool dont
 			char queryString[256];
 			SQL_FormatQuery(_database, queryString, sizeof(queryString), "UPDATE sps_players SET ControlPointsCaptured = ControlPointsCaptured + 1 WHERE AuthId = '%s'", authId);
 			SQL_TQuery(_database, SqlQueryCallback_Default, queryString);
+
+			char queryString2[256];
+			SQL_FormatQuery(_database, queryString2, sizeof(queryString2), "UPDATE pcs_clan_stats SET ControlPointsCaptured = ControlPointsCaptured + 1 WHERE ClanId = (SELECT ClanId FROM pcs_player_to_clan_relationships WHERE AuthId = '%s')", authId);
+			SQL_TQuery(_database, SqlQueryCallback_Default, queryString2);
 		}
 	}
 }
@@ -757,6 +761,10 @@ public void Event_FlagCaptured(Event event, const char[] name, bool dontBroadcas
 	char queryString[256];
 	SQL_FormatQuery(_database, queryString, sizeof(queryString), "UPDATE sps_players SET FlagsCaptured = FlagsCaptured + 1 WHERE AuthId = '%s'", authId);
 	SQL_TQuery(_database, SqlQueryCallback_Default, queryString);
+
+	char queryString2[256];
+	SQL_FormatQuery(_database, queryString2, sizeof(queryString2), "UPDATE pcs_clan_stats SET FlagsCaptured = FlagsCaptured + 1 WHERE ClanId = (SELECT ClanId FROM pcs_player_to_clan_relationships WHERE AuthId = '%s')", authId);
+	SQL_TQuery(_database, SqlQueryCallback_Default, queryString2);
 }
 
 public void Event_FlagPickup(Event event, const char[] name, bool dontBroadcast)
@@ -778,6 +786,10 @@ public void Event_FlagPickup(Event event, const char[] name, bool dontBroadcast)
 	char queryString[256];
 	SQL_FormatQuery(_database, queryString, sizeof(queryString), "UPDATE sps_players SET FlagsPickedUp = FlagsPickedUp + 1 WHERE AuthId = '%s'", authId);
 	SQL_TQuery(_database, SqlQueryCallback_Default, queryString);
+
+	char queryString2[256];
+	SQL_FormatQuery(_database, queryString2, sizeof(queryString2), "UPDATE pcs_clan_stats SET FlagsPickedUp = FlagsPickedUp + 1 WHERE ClanId = (SELECT ClanId FROM pcs_player_to_clan_relationships WHERE AuthId = '%s')", authId);
+	SQL_TQuery(_database, SqlQueryCallback_Default, queryString2);
 }
 
 public void Event_RoundEnd(Event event, const char[] name, bool dontBroadcast)
@@ -825,6 +837,10 @@ public void Event_ObjectDestroyed(Event event, const char[] name, bool dontBroad
 	char queryString[256];
 	SQL_FormatQuery(_database, queryString, sizeof(queryString), "UPDATE sps_players SET ObjectivesDestroyed = ObjectivesDestroyed + 1 WHERE AuthId = '%s'", authId);
 	SQL_TQuery(_database, SqlQueryCallback_Default, queryString);
+
+	char queryString2[256];
+	SQL_FormatQuery(_database, queryString2, sizeof(queryString2), "UPDATE pcs_clan_stats SET ObjectivesDestroyed = ObjectivesDestroyed + 1 WHERE ClanId = (SELECT ClanId FROM pcs_player_to_clan_relationships WHERE AuthId = '%s')", authId);
+	SQL_TQuery(_database, SqlQueryCallback_Default, queryString2);
 }
 
 public Action Event_PlayerChangeName(Event event, const char[] name, bool dontBroadcast)
@@ -888,6 +904,10 @@ public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast
 		SQL_FormatQuery(_database, queryString, sizeof(queryString), "UPDATE sps_players SET DeathsToOther = DeathsToOther + 1 WHERE AuthId = '%s'", authId);
 		SQL_TQuery(_database, SqlQueryCallback_Default, queryString);
 
+		char queryString2[256];
+		SQL_FormatQuery(_database, queryString2, sizeof(queryString2), "UPDATE pcs_clan_stats SET DeathsToOther = DeathsToOther + 1 WHERE ClanId = (SELECT ClanId FROM pcs_player_to_clan_relationships WHERE AuthId = '%s')", authId);
+		SQL_TQuery(_database, SqlQueryCallback_Default, queryString2);
+
 		return;
 	}
 
@@ -907,6 +927,10 @@ public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast
 		SQL_FormatQuery(_database, queryString, sizeof(queryString), "UPDATE sps_players SET DeathsToSelf = DeathsToSelf + 1 WHERE AuthId = '%s'", authId);
 		SQL_TQuery(_database, SqlQueryCallback_Default, queryString);
 
+		char queryString2[256];
+		SQL_FormatQuery(_database, queryString2, sizeof(queryString2), "UPDATE pcs_clan_stats SET DeathsToSelf = DeathsToSelf + 1 WHERE ClanId = (SELECT ClanId FROM pcs_player_to_clan_relationships WHERE AuthId = '%s')", authId);
+		SQL_TQuery(_database, SqlQueryCallback_Default, queryString2);
+
 		return;
 	}
 
@@ -921,6 +945,10 @@ public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast
 			char queryString[256];
 			SQL_FormatQuery(_database, queryString, sizeof(queryString), "UPDATE sps_players SET TeamKills = TeamKills + 1 WHERE AuthId = '%s'", authId);
 			SQL_TQuery(_database, SqlQueryCallback_Default, queryString);
+
+			char queryString2[256];
+			SQL_FormatQuery(_database, queryString2, sizeof(queryString2), "UPDATE pcs_clan_stats SET TeamKills = TeamKills + 1 WHERE ClanId = (SELECT ClanId FROM pcs_player_to_clan_relationships WHERE AuthId = '%s')", authId);
+			SQL_TQuery(_database, SqlQueryCallback_Default, queryString2);
 		}
 
 		if (!victimIsBot)
@@ -931,6 +959,10 @@ public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast
 			char queryString[256];
 			SQL_FormatQuery(_database, queryString, sizeof(queryString), "UPDATE sps_players SET DeathsToTeam = DeathsToTeam + 1 WHERE AuthId = '%s'", authId);
 			SQL_TQuery(_database, SqlQueryCallback_Default, queryString);
+
+			char queryString2[256];
+			SQL_FormatQuery(_database, queryString2, sizeof(queryString2), "UPDATE pcs_clan_stats SET DeathsToTeam = DeathsToTeam + 1 WHERE ClanId = (SELECT ClanId FROM pcs_player_to_clan_relationships WHERE AuthId = '%s')", authId);
+			SQL_TQuery(_database, SqlQueryCallback_Default, queryString2);
 		}
 
 		return;
@@ -948,6 +980,13 @@ public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast
 			"UPDATE sps_players SET EnemyBotKills = EnemyBotKills + %d, EnemyPlayerKills = EnemyPlayerKills + %d WHERE AuthId = '%s'",
 			victimIsBot ? 1 : 0, victimIsBot ? 0 : 1, authId);
 		SQL_TQuery(_database, SqlQueryCallback_Default, queryString);
+
+		char queryString2[256];
+		SQL_FormatQuery(
+			_database, queryString2, sizeof(queryString2),
+			"UPDATE pcs_clan_stats SET EnemyBotKills = EnemyBotKills + %d, EnemyPlayerKills = EnemyPlayerKills + %d WHERE ClanId = (SELECT ClanId FROM pcs_player_to_clan_relationships WHERE AuthId = '%s')",
+			victimIsBot ? 1 : 0, victimIsBot ? 0 : 1, authId);
+		SQL_TQuery(_database, SqlQueryCallback_Default, queryString2);
 	}
 
 	if (!victimIsBot)
@@ -961,6 +1000,13 @@ public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast
 			"UPDATE sps_players SET DeathsToEnemyBots = DeathsToEnemyBots + %d, DeathsToEnemyPlayers = DeathsToEnemyPlayers + %d WHERE AuthId = '%s'",
 			attackerIsBot ? 1 : 0, attackerIsBot ? 0 : 1, authId);
 		SQL_TQuery(_database, SqlQueryCallback_Default, queryString);
+
+		char queryString2[256];
+		SQL_FormatQuery(
+			_database, queryString2, sizeof(queryString2),
+			"UPDATE pcs_clan_stats SET DeathsToEnemyBots = DeathsToEnemyBots + %d, DeathsToEnemyPlayers = DeathsToEnemyPlayers + %d WHERE ClanId = (SELECT ClanId FROM pcs_player_to_clan_relationships WHERE AuthId = '%s')",
+			attackerIsBot ? 1 : 0, attackerIsBot ? 0 : 1, authId);
+		SQL_TQuery(_database, SqlQueryCallback_Default, queryString2);
 	}
 }
 
@@ -1123,6 +1169,26 @@ public void EnsureClanAnyStatsDatabaseRecordExists(const char[] clanId, const ch
 	char queryString[256];
 	SQL_FormatQuery(_database, queryString, sizeof(queryString), "SELECT * FROM pcs_clan_stats WHERE ClanId = '%s' AND RecordType = '%s'", clanId, recordType);
 	SQL_TQuery(_database, SqlQueryCallback_EnsureClanAnyStatsDatabaseRecordExists1, queryString, pack);
+}
+
+public void EnsureClanCustomStatsDatabaseRecordExists(const char[] clanId)
+{
+	EnsureClanAnyStatsDatabaseRecordExists(clanId, "Custom");
+}
+
+public void EnsureClanRankedStatsDatabaseRecordExists(const char[] clanId)
+{
+	EnsureClanAnyStatsDatabaseRecordExists(clanId, "Ranked");
+}
+
+public void EnsureClanStartupStatsDatabaseRecordExists(const char[] clanId)
+{
+	EnsureClanAnyStatsDatabaseRecordExists(clanId, "Startup");
+}
+
+public void EnsureClanTotalStatsDatabaseRecordExists(const char[] clanId)
+{
+	EnsureClanAnyStatsDatabaseRecordExists(clanId, "Total");
 }
 
 public void EnsurePlayerAnyDatabaseRecordExists(int client, const char[] recordType)
@@ -1401,6 +1467,10 @@ public void SqlQueryCallback_Command_CreateClan5(Handle database, Handle handle,
 	ReplyToCommand(client, "\x07[Simple Player Stats] You successfully created clan '%s'.", clanId);
 
 	UpdateClientName(client);
+	EnsureClanCustomStatsDatabaseRecordExists(clanId);
+	EnsureClanRankedStatsDatabaseRecordExists(clanId);
+	EnsureClanStartupStatsDatabaseRecordExists(clanId);
+	EnsureClanTotalStatsDatabaseRecordExists(clanId);
 }
 
 public void SqlQueryCallback_Command_DeleteClan1(Handle database, Handle handle, const char[] sError, DataPack inputPack)
@@ -1465,11 +1535,31 @@ public void SqlQueryCallback_Command_DeleteClan3(Handle database, Handle handle,
 	int client = inputPack.ReadCell();
 	char clanId[5];
 	inputPack.ReadString(clanId, sizeof(clanId));
-	CloseHandle(inputPack);
+	//CloseHandle(inputPack);
 
 	if (!handle)
 	{
 		ThrowError("SQL query error in SqlQueryCallback_Command_DeleteClan3: %d, '%s'", client, sError);
+	}
+
+	char queryString[256];
+	SQL_FormatQuery(
+		_database, queryString, sizeof(queryString),
+		"DELETE FROM pcs_clan_stats WHERE ClanId = '%s'", clanId);
+	SQL_TQuery(_database, SqlQueryCallback_Command_DeleteClan4, queryString, inputPack);
+}
+
+public void SqlQueryCallback_Command_DeleteClan4(Handle database, Handle handle, const char[] sError, DataPack inputPack)
+{
+	inputPack.Reset();
+	int client = inputPack.ReadCell();
+	char clanId[5];
+	inputPack.ReadString(clanId, sizeof(clanId));
+	CloseHandle(inputPack);
+
+	if (!handle)
+	{
+		ThrowError("SQL query error in SqlQueryCallback_Command_DeleteClan4: %d, '%s'", client, sError);
 	}
 
 	ReplyToCommand(client, "\x07[Simple Player Stats] You successfully deleted clan '%s'.", clanId);
@@ -1760,29 +1850,57 @@ public void SqlQueryCallback_Command_MyStats1(Handle database, Handle handle, co
 
 	SQL_FetchRow(handle);
 
-	int connectionCount = SQL_FetchInt(handle, 5);
-	int connectedTime = SQL_FetchInt(handle, 6);
-	int activeTime = SQL_FetchInt(handle, 7);
-	int enemyBotKills = SQL_FetchInt(handle, 8);
-	int enemyPlayerKills = SQL_FetchInt(handle, 9);
-	int teamKills = SQL_FetchInt(handle, 10);
-	int deathsToEnemyBots = SQL_FetchInt(handle, 11);
-	int deathsToEnemyPlayers = SQL_FetchInt(handle, 12);
-	int deathsToSelf = SQL_FetchInt(handle, 13);
-	int deathsToTeam = SQL_FetchInt(handle, 14);
-	int deathsToOther = SQL_FetchInt(handle, 15);
-	int controlPointsCaptured = SQL_FetchInt(handle, 16);
-	int flagsCaptured = SQL_FetchInt(handle, 17);
-	int flagsPickedUp = SQL_FetchInt(handle, 18);
-	int objectivesDestroyed = SQL_FetchInt(handle, 19);
+	int pConnectionCount = SQL_FetchInt(handle, 0);
+	int pConnectedTime = SQL_FetchInt(handle, 1);
+	int pActiveTime = SQL_FetchInt(handle, 2);
+	int pEnemyBotKills = SQL_FetchInt(handle, 3);
+	int pEnemyPlayerKills = SQL_FetchInt(handle, 4);
+	int pTeamKills = SQL_FetchInt(handle, 5);
+	int pDeathsToEnemyBots = SQL_FetchInt(handle, 6);
+	int pDeathsToEnemyPlayers = SQL_FetchInt(handle, 7);
+	int pDeathsToSelf = SQL_FetchInt(handle, 8);
+	int pDeathsToTeam = SQL_FetchInt(handle, 9);
+	int pDeathsToOther = SQL_FetchInt(handle, 10);
+	int pControlPointsCaptured = SQL_FetchInt(handle, 11);
+	int pFlagsCaptured = SQL_FetchInt(handle, 12);
+	int pFlagsPickedUp = SQL_FetchInt(handle, 13);
+	int pObjectivesDestroyed = SQL_FetchInt(handle, 14);
 
 	ReplyToCommand(
 		client,
 		"\x05[Simple Player Stats] Your Stats -- ConnectionCount: %d - ConnectedTime: %dh%dm - ActiveTime: %dh%dm - TotalKills: %d (%d enemy bots, %d enemy players, %d team) - TotalDeaths: %d (%d enemy bots, %d enemy players, %d self, %d team, %d other) - Objectives: %d (%d control points captured, %d flags picked up, %d flags captured, %d objectives destroyed)",
-		connectionCount, connectedTime / 3600, connectedTime % 3600 / 60, activeTime / 3600, activeTime % 3600 / 60,
-		enemyBotKills + enemyPlayerKills + teamKills, enemyBotKills, enemyPlayerKills, teamKills,
-		deathsToEnemyBots + deathsToEnemyPlayers + deathsToSelf + deathsToTeam + deathsToOther, deathsToEnemyBots, deathsToEnemyPlayers, deathsToSelf, deathsToTeam, deathsToOther,
-		controlPointsCaptured + flagsPickedUp + flagsCaptured + objectivesDestroyed, controlPointsCaptured, flagsPickedUp, flagsCaptured, objectivesDestroyed);
+		pConnectionCount, pConnectedTime / 3600, pConnectedTime % 3600 / 60, pActiveTime / 3600, pActiveTime % 3600 / 60,
+		pEnemyBotKills + pEnemyPlayerKills + pTeamKills, pEnemyBotKills, pEnemyPlayerKills, pTeamKills,
+		pDeathsToEnemyBots + pDeathsToEnemyPlayers + pDeathsToSelf + pDeathsToTeam + pDeathsToOther, pDeathsToEnemyBots, pDeathsToEnemyPlayers, pDeathsToSelf, pDeathsToTeam, pDeathsToOther,
+		pControlPointsCaptured + pFlagsPickedUp + pFlagsCaptured + pObjectivesDestroyed, pControlPointsCaptured, pFlagsPickedUp, pFlagsCaptured, pObjectivesDestroyed);
+
+	int firstClanStatColumnIndex = 15;
+	if (!SQL_IsFieldNull(handle, firstClanStatColumnIndex))
+	{
+		int cConnectionCount = SQL_FetchInt(handle, firstClanStatColumnIndex);
+		int cConnectedTime = SQL_FetchInt(handle, firstClanStatColumnIndex + 1);
+		int cActiveTime = SQL_FetchInt(handle, firstClanStatColumnIndex + 2);
+		int cEnemyBotKills = SQL_FetchInt(handle, firstClanStatColumnIndex + 3);
+		int cEnemyPlayerKills = SQL_FetchInt(handle, firstClanStatColumnIndex + 4);
+		int cTeamKills = SQL_FetchInt(handle, firstClanStatColumnIndex + 5);
+		int cDeathsToEnemyBots = SQL_FetchInt(handle, firstClanStatColumnIndex + 6);
+		int cDeathsToEnemyPlayers = SQL_FetchInt(handle, firstClanStatColumnIndex + 7);
+		int cDeathsToSelf = SQL_FetchInt(handle, firstClanStatColumnIndex + 8);
+		int cDeathsToTeam = SQL_FetchInt(handle, firstClanStatColumnIndex + 9);
+		int cDeathsToOther = SQL_FetchInt(handle, firstClanStatColumnIndex + 10);
+		int cControlPointsCaptured = SQL_FetchInt(handle, firstClanStatColumnIndex + 11);
+		int cFlagsCaptured = SQL_FetchInt(handle, firstClanStatColumnIndex + 12);
+		int cFlagsPickedUp = SQL_FetchInt(handle, firstClanStatColumnIndex + 13);
+		int cObjectivesDestroyed = SQL_FetchInt(handle, firstClanStatColumnIndex + 14);
+
+		ReplyToCommand(
+			client,
+			"\x05[Simple Player Stats] Your Clan's Stats -- ConnectionCount: %d - ConnectedTime: %dh%dm - ActiveTime: %dh%dm - TotalKills: %d (%d enemy bots, %d enemy players, %d team) - TotalDeaths: %d (%d enemy bots, %d enemy players, %d self, %d team, %d other) - Objectives: %d (%d control points captured, %d flags picked up, %d flags captured, %d objectives destroyed)",
+			cConnectionCount, cConnectedTime / 3600, cConnectedTime % 3600 / 60, cActiveTime / 3600, cActiveTime % 3600 / 60,
+			cEnemyBotKills + cEnemyPlayerKills + cTeamKills, cEnemyBotKills, cEnemyPlayerKills, cTeamKills,
+			cDeathsToEnemyBots + cDeathsToEnemyPlayers + cDeathsToSelf + cDeathsToTeam + cDeathsToOther, cDeathsToEnemyBots, cDeathsToEnemyPlayers, cDeathsToSelf, cDeathsToTeam, cDeathsToOther,
+			cControlPointsCaptured + cFlagsPickedUp + cFlagsCaptured + cObjectivesDestroyed, cControlPointsCaptured, cFlagsPickedUp, cFlagsCaptured, cObjectivesDestroyed);
+	}
 }
 
 public void SqlQueryCallback_Command_ResetStats1(Handle database, Handle handle, const char[] sError, DataPack inputPack)
@@ -2057,6 +2175,13 @@ public void SqlQueryCallback_Command_UpdateClientRank1(Handle database, Handle h
 		authId);
 	SQL_TQuery(_database, SqlQueryCallback_Default, queryString);
 
+	char queryString2[256];
+	SQL_FormatQuery(
+		_database, queryString2, sizeof(queryString2),
+		"UPDATE pcs_clan_stats SET RankPoints = ConnectedTime / 60 + ActiveTime / 6 + EnemyBotKills * 10 + EnemyPlayerKills * 100 + ControlPointsCaptured * 100 + FlagsCaptured * 300 + FlagsPickedUp * 100 WHERE ClanId = (SELECT ClanId FROM pcs_player_to_clan_relationships WHERE AuthId = '%s')",
+		authId);
+	SQL_TQuery(_database, SqlQueryCallback_Default, queryString2);
+
 	char rankLongName[32];
 	char rankShortName[5];
 	int rankId = GetRank(points, rankShortName, sizeof(rankShortName), rankLongName, sizeof(rankLongName));
@@ -2103,6 +2228,13 @@ public void UpdateClientActiveAndConnectedTimes(int client)
 		"UPDATE sps_players SET ActiveTime = ActiveTime + %d, ConnectedTime = ConnectedTime + %d WHERE AuthId = '%s'",
 		additionalActiveTime, additionalConnectedTime, authId);
 	SQL_TQuery(_database, SqlQueryCallback_Default, queryString);
+
+	char queryString2[256];
+	SQL_FormatQuery(
+		_database, queryString2, sizeof(queryString2),
+		"UPDATE pcs_clan_stats SET ActiveTime = ActiveTime + %d, ConnectedTime = ConnectedTime + %d WHERE ClanId = (SELECT ClanId FROM pcs_player_to_clan_relationships WHERE AuthId = '%s')",
+		additionalActiveTime, additionalConnectedTime, authId);
+	SQL_TQuery(_database, SqlQueryCallback_Default, queryString2);
 }
 
 public void UpdateClientName(int client)

@@ -1114,18 +1114,29 @@ public int GetRank(int rankPoints, char[] rankShortName, int rankShortNameMaxLen
 	return rankId;
 }
 
+public void EnsureClanAnyStatsDatabaseRecordExists(const char[] clanId, const char[] recordType)
+{
+	DataPack pack = new DataPack();
+	pack.WriteString(clanId);
+	pack.WriteString(recordType);
+
+	char queryString[256];
+	SQL_FormatQuery(_database, queryString, sizeof(queryString), "SELECT * FROM pcs_clan_stats WHERE ClanId = '%s' AND RecordType = '%s'", clanId, recordType);
+	SQL_TQuery(_database, SqlQueryCallback_EnsureClanAnyStatsDatabaseRecordExists1, queryString, pack);
+}
+
 public void EnsurePlayerAnyDatabaseRecordExists(int client, const char[] recordType)
 {
 	char authId[35];
 	GetClientAuthId(client, AuthId_Steam2, authId, sizeof(authId));
 
 	DataPack pack = new DataPack();
-	pack.WriteCell(GetClientUserId(client));
+	pack.WriteCell(client);
 	pack.WriteString(recordType);
 
 	char queryString[256];
 	SQL_FormatQuery(_database, queryString, sizeof(queryString), "SELECT * FROM sps_players WHERE AuthId = '%s' AND RecordType = '%s'", authId, recordType);
-	SQL_TQuery(_database, SqlQueryCallback_EnsurePlayerDatabaseRecordsExist1, queryString, pack);
+	SQL_TQuery(_database, SqlQueryCallback_EnsurePlayerDatabaseRecordExists1, queryString, pack);
 }
 
 public void EnsurePlayerCustomDatabaseRecordExists(int client)
@@ -1814,23 +1825,51 @@ public void SqlQueryCallback_Default(Handle database, Handle handle, const char[
 	}
 }
 
-public void SqlQueryCallback_EnsurePlayerDatabaseRecordsExist1(Handle database, Handle handle, const char[] sError, DataPack inputPack)
+public void SqlQueryCallback_EnsureClanAnyStatsDatabaseRecordExists1(Handle database, Handle handle, const char[] sError, DataPack inputPack)
 {
 	inputPack.Reset();
-	int userid = inputPack.ReadCell();
+	char clanId[16];
+	inputPack.ReadString(clanId, sizeof(clanId));
 	char recordType[16];
 	inputPack.ReadString(recordType, sizeof(recordType));
 	CloseHandle(inputPack);
 
 	if (!handle)
 	{
-		ThrowError("SQL query error in SqlQueryCallback_EnsurePlayerDatabaseRecordsExist1: %d, '%s', '%s'", userid, recordType, sError);
+		ThrowError("SQL query error in SqlQueryCallback_EnsureClanAnyStatsDatabaseRecordExists1: '%s', '%s', '%s'", clanId, recordType, sError);
 	}
 
-	int client = GetClientOfUserId(userid);
-	if (client == 0)
+	if (SQL_GetRowCount(handle) == 0)
 	{
+		char queryString[512];
+		SQL_FormatQuery(
+			_database, queryString, sizeof(queryString),
+			"INSERT INTO pcs_clan_stats (ClanId, RecordType, ConnectionCount, ConnectedTime, ActiveTime, EnemyBotKills, EnemyPlayerKills, TeamKills, DeathsToEnemyBots, DeathsToEnemyPlayers, DeathsToSelf, DeathsToTeam, DeathsToOther, ControlPointsCaptured, FlagsCaptured, FlagsPickedUp, ObjectivesDestroyed) VALUES ('%s', '%s', %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d)",
+			clanId, recordType, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+		SQL_TQuery(_database, SqlQueryCallback_Default, queryString);
+
 		return;
+	}
+
+	char queryString[256];
+	SQL_FormatQuery(
+		_database, queryString, sizeof(queryString),
+		"UPDATE pcs_clan_stats SET ConnectionCount = ConnectionCount + 1 WHERE ClanId = '%s' AND RecordType = '%s'",
+		clanId, recordType);
+	SQL_TQuery(_database, SqlQueryCallback_Default, queryString);
+}
+
+public void SqlQueryCallback_EnsurePlayerDatabaseRecordExists1(Handle database, Handle handle, const char[] sError, DataPack inputPack)
+{
+	inputPack.Reset();
+	int client = inputPack.ReadCell();
+	char recordType[16];
+	inputPack.ReadString(recordType, sizeof(recordType));
+	//CloseHandle(inputPack);
+
+	if (!handle)
+	{
+		ThrowError("SQL query error in SqlQueryCallback_EnsurePlayerDatabaseRecordExists1: %d, '%s', '%s'", client, recordType, sError);
 	}
 
 	char authId[35];
@@ -1851,27 +1890,56 @@ public void SqlQueryCallback_EnsurePlayerDatabaseRecordsExist1(Handle database, 
 		{
 			PrintToChat(client, "\x05Welcome %s, this is your first time here!", _playerNames[client]);
 		}
+	}
+	else {
+		SQL_FetchRow(handle);
 
+		int connectionCount = SQL_FetchInt(handle, 5);
+		int connectedTime = SQL_FetchInt(handle, 6);
+		int activeTime = SQL_FetchInt(handle, 7);
+
+		char queryString[256];
+		SQL_FormatQuery(
+			_database, queryString, sizeof(queryString),
+			"UPDATE sps_players SET LastConnectionTimestamp = %d, ConnectionCount = ConnectionCount + 1, PlayerName = '%s' WHERE AuthId = '%s' AND RecordType = '%s'",
+			timestamp, _playerNames[client], authId, recordType);
+		SQL_TQuery(_database, SqlQueryCallback_Default, queryString);
+
+		if (StrEqual(recordType, "Total"))
+		{
+			PrintToChat(client, "\x05Welcome %s, you have played on this server %d times for %.2f hours (%.2f hours connected).", _playerNames[client], connectionCount + 1, activeTime / 3600.0, connectedTime / 3600.0);
+		}
+	}
+
+	char queryString[256];
+	SQL_FormatQuery(_database, queryString, sizeof(queryString), "SELECT * FROM pcs_player_to_clan_relationships WHERE AuthId = '%s'", authId);
+	SQL_TQuery(_database, SqlQueryCallback_EnsurePlayerDatabaseRecordExists2, queryString, inputPack);
+}
+
+public void SqlQueryCallback_EnsurePlayerDatabaseRecordExists2(Handle database, Handle handle, const char[] sError, DataPack inputPack)
+{
+	inputPack.Reset();
+	int client = inputPack.ReadCell();
+	char recordType[16];
+	inputPack.ReadString(recordType, sizeof(recordType));
+	CloseHandle(inputPack);
+
+	if (!handle)
+	{
+		ThrowError("SQL query error in SqlQueryCallback_EnsurePlayerDatabaseRecordExists2: %d, '%s', '%s'", client, recordType, sError);
+	}
+
+	if (SQL_GetRowCount(handle) == 0)
+	{
 		return;
 	}
 
 	SQL_FetchRow(handle);
 
-	int connectionCount = SQL_FetchInt(handle, 5);
-	int connectedTime = SQL_FetchInt(handle, 6);
-	int activeTime = SQL_FetchInt(handle, 7);
+	char clanId[5];
+	SQL_FetchString(handle, 1, clanId, sizeof(clanId));
 
-	char queryString[256];
-	SQL_FormatQuery(
-		_database, queryString, sizeof(queryString),
-		"UPDATE sps_players SET LastConnectionTimestamp = %d, ConnectionCount = ConnectionCount + 1, PlayerName = '%s' WHERE AuthId = '%s' AND RecordType = '%s'",
-		timestamp, _playerNames[client], authId, recordType);
-	SQL_TQuery(_database, SqlQueryCallback_Default, queryString);
-
-	if (StrEqual(recordType, "Total"))
-	{
-		PrintToChat(client, "\x05Welcome %s, you have played on this server %d times for %.2f hours (%.2f hours connected).", _playerNames[client], connectionCount + 1, activeTime / 3600.0, connectedTime / 3600.0);
-	}
+	EnsureClanAnyStatsDatabaseRecordExists(clanId, recordType);
 }
 
 public void SqlQueryCallback_OnMapStart1(Handle database, Handle handle, const char[] sError, any nothing)

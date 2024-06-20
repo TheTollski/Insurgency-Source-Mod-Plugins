@@ -35,8 +35,6 @@ public Plugin myinfo =
 // Get ranks from config file (disable rank system if file empty)
 // Track MVP stats
 // Track accuracy stats
-// Print output to chat
-	// Use correct colors.
 
 //
 // Forwards
@@ -109,7 +107,13 @@ public void OnClientPostAdminCheck(int client)
 	}
 
 	_lastConnectedTimeSavedTimestamps[client] = GetTime();
-	GetClientName(client, _playerNames[client], MAX_NAME_LENGTH); // TODO: Remove user's clan tag in their actual name.
+
+	GetClientName(client, _playerNames[client], MAX_NAME_LENGTH);
+	if (_playerNames[client][0] == '[')
+	{
+		_playerNames[client][0] = '<';
+		ReplaceStringEx(_playerNames[client], MAX_NAME_LENGTH, "]", ">");
+	}
 
 	char authId[35];
 	GetClientAuthId(client, AuthId_Steam2, authId, sizeof(authId));

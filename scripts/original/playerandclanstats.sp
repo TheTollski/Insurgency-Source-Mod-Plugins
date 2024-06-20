@@ -311,17 +311,17 @@ public Action Command_CreateClan(int client, int args)
 		return Plugin_Handled;
 	}
 
-	char clanName[65];
+	char clanName[33];
 	GetCmdArg(2, clanName, sizeof(clanName));
 
 	for (int i = 3; i <= args; i++)
 	{
-		char argx[65];
+		char argx[33];
 		GetCmdArg(i, argx, sizeof(argx));
 
-		if (strlen(clanName) + strlen(argx) > 64)
+		if (strlen(clanName) + strlen(argx) > 32)
 		{
-			ReplyToCommand(client, "[P&CS] ClanName must be less than 64 characters long.");
+			ReplyToCommand(client, "[P&CS] ClanName length must be 32 characters or less.");
 			return Plugin_Handled;
 		}
 
@@ -419,7 +419,7 @@ public Action Command_GetCachedOutput(int client, int args)
 		return Plugin_Handled;
 	}
 
-	for (int i = start; i <= _postDbCallOutputCount && i <= end; i++)
+	for (int i = start; i < _postDbCallOutputCount && i <= end; i++)
 	{
 		ReplyToCommand(client, _postDbCallOutput[i]);
 	}
@@ -1099,7 +1099,7 @@ public void ConnectToDatabase()
 
 	SQL_TQuery(
 		_database, SqlQueryCallback_Default,
-		"CREATE TABLE IF NOT EXISTS pcs_clans (ClanId VARCHAR(4) NOT NULL, ClanName VARCHAR(64) NOT NULL, CreationTimestamp INT(11) NOT NULL, UNIQUE(ClanId))");
+		"CREATE TABLE IF NOT EXISTS pcs_clans (ClanId VARCHAR(4) NOT NULL, ClanName VARCHAR(32) NOT NULL, CreationTimestamp INT(11) NOT NULL, UNIQUE(ClanId))");
 
 	SQL_TQuery(
 		_database, SqlQueryCallback_Default,
@@ -1376,7 +1376,7 @@ public void SqlQueryCallback_Command_CreateClan1(Handle database, Handle handle,
 	int client = inputPack.ReadCell();
 	char clanId[5];
 	inputPack.ReadString(clanId, sizeof(clanId));
-	char clanName[65];
+	char clanName[33];
 	inputPack.ReadString(clanName, sizeof(clanName));
 	//CloseHandle(inputPack);
 
@@ -1404,7 +1404,7 @@ public void SqlQueryCallback_Command_CreateClan2(Handle database, Handle handle,
 	int client = inputPack.ReadCell();
 	char clanId[5];
 	inputPack.ReadString(clanId, sizeof(clanId));
-	char clanName[65];
+	char clanName[33];
 	inputPack.ReadString(clanName, sizeof(clanName));
 	//CloseHandle(inputPack);
 
@@ -1435,7 +1435,7 @@ public void SqlQueryCallback_Command_CreateClan3(Handle database, Handle handle,
 	int client = inputPack.ReadCell();
 	char clanId[5];
 	inputPack.ReadString(clanId, sizeof(clanId));
-	char clanName[65];
+	char clanName[33];
 	inputPack.ReadString(clanName, sizeof(clanName));
 	//CloseHandle(inputPack);
 
@@ -1467,7 +1467,7 @@ public void SqlQueryCallback_Command_CreateClan4(Handle database, Handle handle,
 	int client = inputPack.ReadCell();
 	char clanId[5];
 	inputPack.ReadString(clanId, sizeof(clanId));
-	char clanName[65];
+	char clanName[33];
 	inputPack.ReadString(clanName, sizeof(clanName));
 	//CloseHandle(inputPack);
 
@@ -1490,7 +1490,7 @@ public void SqlQueryCallback_Command_CreateClan5(Handle database, Handle handle,
 	int client = inputPack.ReadCell();
 	char clanId[5];
 	inputPack.ReadString(clanId, sizeof(clanId));
-	char clanName[65];
+	char clanName[33];
 	inputPack.ReadString(clanName, sizeof(clanName));
 	CloseHandle(inputPack);
 
@@ -1786,8 +1786,8 @@ public void SqlQueryCallback_Command_Leaderboard1(Handle database, Handle handle
 	}
 	else
 	{
-		header1 = "## | ClanTag | ClanName                                                         | Points    | Bot Kills | Player Kills | Objectives";
-		header2 = "-- | ------- | ---------------------------------------------------------------- | --------- | --------- | ------------ | ----------";
+		header1 = "## | ClanTag | ClanName                         | Points    | Bot Kills | Player Kills | Objectives";
+		header2 = "-- | ------- | -------------------------------- | --------- | --------- | ------------ | ----------";
 	}
 
 	ReplyToCommand(client, header1);
@@ -1821,7 +1821,7 @@ public void SqlQueryCallback_Command_Leaderboard1(Handle database, Handle handle
 			int rankId = GetRank(rankPoints, rankShortName, sizeof(rankShortName), rankLongName, sizeof(rankLongName));
 
 			Format(output, 1024, 
-				"%2d | %30s | %4s | %32s | %9d | %9d | %12d | %10d ",
+				"%2d | %30s | %4s | %32s | %9d | %9d | %12d | %10d",
 				count + 1, playerName, rankShortName, rankLongName,
 				rankPoints, enemyBotKills, enemyPlayerKills,
 				controlPointsCaptured + flagsPickedUp + flagsCaptured + objectivesDestroyed);
@@ -1837,11 +1837,11 @@ public void SqlQueryCallback_Command_Leaderboard1(Handle database, Handle handle
 			int flagsPickedUp = SQL_FetchInt(handle, 15);
 			int objectivesDestroyed = SQL_FetchInt(handle, 16);
 			int rankPoints = SQL_FetchInt(handle, 17);
-			char clanName[65];
+			char clanName[33];
 			SQL_FetchString(handle, 19, clanName, sizeof(clanName));
 
 			Format(output, 1024, 
-				"%2d | %7s | %64s | %9d | %9d | %12d | %10d ",
+				"%2d | %7s | %32s | %9d | %9d | %12d | %10d",
 				count + 1, clanId, clanName,
 				rankPoints, enemyBotKills, enemyPlayerKills,
 				controlPointsCaptured + flagsPickedUp + flagsCaptured + objectivesDestroyed);

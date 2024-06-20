@@ -298,6 +298,7 @@ public Action Command_CreateClan(int client, int args)
 	if (args < 2)
 	{
 		ReplyToCommand(client, "[P&CS] Usage: sm_createclan ClanTag ClanName");
+		ReplyToCommand(client, "[P&CS] Example: !createclan TEST This Is A Test Clan");
 		return Plugin_Handled;
 	}
 
@@ -306,7 +307,7 @@ public Action Command_CreateClan(int client, int args)
 
 	if (strlen(clanId) < 2 || strlen(clanId) > 4)
 	{
-		ReplyToCommand(client, "[P&CS] Usage: ClanTag must be 2-4 characters long.");
+		ReplyToCommand(client, "[P&CS] ClanTag must be 2-4 characters long.");
 		return Plugin_Handled;
 	}
 
@@ -320,7 +321,7 @@ public Action Command_CreateClan(int client, int args)
 
 		if (strlen(clanName) + strlen(argx) > 64)
 		{
-			ReplyToCommand(client, "[P&CS] Usage: ClanName must be less than 64 characters long.");
+			ReplyToCommand(client, "[P&CS] ClanName must be less than 64 characters long.");
 			return Plugin_Handled;
 		}
 
@@ -332,7 +333,7 @@ public Action Command_CreateClan(int client, int args)
 	pack.WriteString(clanId);
 	pack.WriteString(clanName);
 
-	ReplyToCommand(client, "[P&CS] Processing createclan command, output will be printed in your console.");
+	ReplyToCommand(client, "[P&CS] Processing createclan command, output will be printed in your chat.");
 
 	char queryString[256];
 	SQL_FormatQuery(
@@ -347,6 +348,7 @@ public Action Command_DeleteClan(int client, int args)
 	if (args != 1)
 	{
 		ReplyToCommand(client, "[P&CS] Usage: deleteclan ClanTag");
+		ReplyToCommand(client, "[P&CS] Example: !deleteclan TEST");
 		return Plugin_Handled;
 	}
 
@@ -360,7 +362,7 @@ public Action Command_DeleteClan(int client, int args)
 	pack.WriteCell(client);
 	pack.WriteString(clanId);
 
-	ReplyToCommand(client, "[P&CS] Processing deleteclan command, output will be printed in your console.");
+	ReplyToCommand(client, "[P&CS] Processing deleteclan command, output will be printed in your chat.");
 
 	char queryString[256];
 	SQL_FormatQuery(
@@ -430,6 +432,7 @@ public Action Command_InviteToClan(int client, int args)
 	if (args != 1)
 	{
 		ReplyToCommand(client, "[P&CS] Usage: sm_invitetoclan ClientId");
+		ReplyToCommand(client, "[P&CS] Example: !invitetoclan 2");
 
 		ReplyToCommand(client, "[P&CS] Valid ClientIds:");
 		ReplyToCommand(client, "[P&CS] ClientId | PlayerName");
@@ -468,7 +471,7 @@ public Action Command_InviteToClan(int client, int args)
 	pack.WriteCell(client);
 	pack.WriteCell(inviteeClient);
 
-	ReplyToCommand(client, "[P&CS] Processing invitetoclan command, output will be printed in your console.");
+	ReplyToCommand(client, "[P&CS] Processing invitetoclan command, output will be printed in your chat.");
 
 	char queryString[256];
 	SQL_FormatQuery(
@@ -483,6 +486,7 @@ public Action Command_JoinClan(int client, int args)
 	if (args != 1)
 	{
 		ReplyToCommand(client, "[P&CS] Usage: sm_joinclan ClanTag");
+		ReplyToCommand(client, "[P&CS] Example: !joinclan TEST");
 		return Plugin_Handled;
 	}
 
@@ -496,7 +500,7 @@ public Action Command_JoinClan(int client, int args)
 	pack.WriteCell(client);
 	pack.WriteString(arg1);
 
-	ReplyToCommand(client, "[P&CS] Processing joinclan command, output will be printed in your console.");
+	ReplyToCommand(client, "[P&CS] Processing joinclan command, output will be printed in your chat.");
 
 	char queryString[256];
 	SQL_FormatQuery(
@@ -575,7 +579,6 @@ public Action Command_Leaderboard(int client, int args)
 			"SELECT * FROM sps_players WHERE RecordType = 'Ranked' ORDER BY RankPoints DESC LIMIT 99");
 		SQL_TQuery(_database, SqlQueryCallback_Command_Leaderboard1, queryString, pack);
 	}
-
 	
 	return Plugin_Handled;
 }
@@ -591,7 +594,7 @@ public Action Command_LeaveClan(int client, int args)
 	char authId[35];
 	GetClientAuthId(client, AuthId_Steam2, authId, sizeof(authId));
 
-	ReplyToCommand(client, "[P&CS] Processing leaveclan command, output will be printed in your console.");
+	ReplyToCommand(client, "[P&CS] Processing leaveclan command, output will be printed in your chat.");
 
 	char queryString[256];
 	SQL_FormatQuery(
@@ -677,7 +680,7 @@ public Action Command_ResetStats(int client, int args)
 		arg1 = "Custom";
 	}
 
-		if (args != 1)
+	if (args != 1)
 	{
 		ReplyToCommand(client, "[P&CS] Usage: sm_resetstats [Type('Custom'|'Ranked')]");
 		ReplyToCommand(client, "[P&CS] Using: sm_resetstats %s", arg1);
@@ -1384,7 +1387,7 @@ public void SqlQueryCallback_Command_CreateClan1(Handle database, Handle handle,
 
 	if (SQL_GetRowCount(handle) > 0)
 	{
-		ReplyToCommand(client, "[P&CS] A clan already exists with the tag '%s'.", clanId);
+		PrintToChat(client, "\x07e50000[P&CS] A clan already exists with the tag '%s'.", clanId);
 		return;
 	}
 
@@ -1412,7 +1415,7 @@ public void SqlQueryCallback_Command_CreateClan2(Handle database, Handle handle,
 
 	if (SQL_GetRowCount(handle) > 0)
 	{
-		ReplyToCommand(client, "[P&CS] A clan already exists with the name '%s'.", clanName);
+		PrintToChat(client, "\x07e50000[P&CS] A clan already exists with the name '%s'.", clanName);
 		return;
 	}
 
@@ -1443,7 +1446,7 @@ public void SqlQueryCallback_Command_CreateClan3(Handle database, Handle handle,
 
 	if (SQL_GetRowCount(handle) > 0)
 	{
-		ReplyToCommand(client, "[P&CS] You are already in a clan. You must first leave your clan before creating a new one.");
+		PrintToChat(client, "\x07e50000[P&CS] You are already in a clan. You must first leave your clan before creating a new one.");
 		return;
 	}
 
@@ -1496,7 +1499,7 @@ public void SqlQueryCallback_Command_CreateClan5(Handle database, Handle handle,
 		ThrowError("SQL query error in SqlQueryCallback_Command_CreateClan5: %d, '%s'", client, sError);
 	}
 
-	ReplyToCommand(client, "[P&CS] You successfully created clan '%s'.", clanId);
+	PrintToChat(client, "\x05[P&CS] You successfully created clan '%s'.", clanId);
 
 	UpdateClientName(client);
 	EnsureClanCustomStatsDatabaseRecordExists(clanId);
@@ -1520,7 +1523,7 @@ public void SqlQueryCallback_Command_DeleteClan1(Handle database, Handle handle,
 
 	if (SQL_GetRowCount(handle) != 1)
 	{
-		ReplyToCommand(client, "[P&CS] You are not in the '%s' clan.", clanId);
+		PrintToChat(client, "\x07e50000[P&CS] You are not in the '%s' clan.", clanId);
 		return;
 	}
 
@@ -1530,7 +1533,7 @@ public void SqlQueryCallback_Command_DeleteClan1(Handle database, Handle handle,
 
 	if (rankInClan != 1)
 	{
-		ReplyToCommand(client, "[P&CS] You cannot delete a clan that you don't own.");
+		PrintToChat(client, "\x07e50000[P&CS] You cannot delete a clan that you don't own.");
 		return;
 	}
 
@@ -1594,7 +1597,7 @@ public void SqlQueryCallback_Command_DeleteClan4(Handle database, Handle handle,
 		ThrowError("SQL query error in SqlQueryCallback_Command_DeleteClan4: %d, '%s'", client, sError);
 	}
 
-	ReplyToCommand(client, "[P&CS] You successfully deleted clan '%s'.", clanId);
+	PrintToChat(client, "\x05[P&CS] You successfully deleted clan '%s'.", clanId);
 
 	// TODO: We should update the name of anyone in that clan who might be currently connected, but this works for now.
 	UpdateClientName(client);
@@ -1614,7 +1617,7 @@ public void SqlQueryCallback_Command_InviteToClan1(Handle database, Handle handl
 
 	if (SQL_GetRowCount(handle) != 1)
 	{
-		ReplyToCommand(client, "[P&CS] You are not in a clan.");
+		PrintToChat(client, "\x07e50000[P&CS] You are not in a clan.");
 		return;
 	}
 
@@ -1626,7 +1629,7 @@ public void SqlQueryCallback_Command_InviteToClan1(Handle database, Handle handl
 
 	if (rankInClan > 2)
 	{
-		ReplyToCommand(client, "[P&CS] You cannot invite other people to a clan if you are not a clan owner or officer.");
+		PrintToChat(client, "\x07e50000[P&CS] You cannot invite other people to a clan if you are not a clan owner or officer.");
 		return;
 	}
 
@@ -1665,8 +1668,7 @@ public void SqlQueryCallback_Command_InviteToClan2(Handle database, Handle handl
 	char inviteeName[MAX_NAME_LENGTH];
 	GetClientName(inviteeClient, inviteeName, MAX_NAME_LENGTH);
 
-	ReplyToCommand(client, "[P&CS] You successfully invited '%s' to join your clan.", inviteeName);
-
+	PrintToChat(client, "\x05[P&CS] You successfully invited '%s' to join your clan.", inviteeName);
 	PrintToChat(inviteeClient, "\x07f5bf03[P&CS] You have been invited to join the '%s' clan. To accept this invitation, enter the command: !joinclan %s", clanId, clanId);
 }
 
@@ -1685,7 +1687,7 @@ public void SqlQueryCallback_Command_JoinClan1(Handle database, Handle handle, c
 
 	if (SQL_GetRowCount(handle) < 1)
 	{
-		ReplyToCommand(client, "[P&CS] You do not have an active invitation to the '%s' clan.", clanId);
+		PrintToChat(client, "\x07e50000[P&CS] You do not have an active invitation to the '%s' clan.", clanId);
 		return;
 	}
 
@@ -1714,7 +1716,7 @@ public void SqlQueryCallback_Command_JoinClan2(Handle database, Handle handle, c
 
 	if (SQL_GetRowCount(handle) > 0)
 	{
-		ReplyToCommand(client, "[P&CS] You are already in a clan. To join the '%s' clan you must first leave your current clan by entering: !leaveclan", clanId);
+		PrintToChat(client, "\x07e50000[P&CS] You are already in a clan. To join the '%s' clan you must first leave your current clan by entering: !leaveclan", clanId);
 		return;
 	}
 
@@ -1752,7 +1754,7 @@ public void SqlQueryCallback_Command_JoinClan3(Handle database, Handle handle, c
 		authId, clanId);
 	SQL_TQuery(_database, SqlQueryCallback_Default, queryString, inputPack);
 
-	ReplyToCommand(client, "[P&CS] You have successfully joined the '%s' clan.", clanId);
+	PrintToChat(client, "\x05[P&CS] You have successfully joined the '%s' clan.", clanId);
 	UpdateClientName(client);
 }
 
@@ -1865,7 +1867,7 @@ public void SqlQueryCallback_Command_LeaveClan1(Handle database, Handle handle, 
 
 	if (SQL_GetRowCount(handle) == 0)
 	{
-		ReplyToCommand(client, "[P&CS] You are not in a clan.");
+		PrintToChat(client, "\x07e50000[P&CS] You are not in a clan.");
 		return;
 	}
 
@@ -1873,11 +1875,13 @@ public void SqlQueryCallback_Command_LeaveClan1(Handle database, Handle handle, 
 
 	char authId[32];
 	SQL_FetchString(handle, 0, authId, sizeof(authId));
+	char clanId[32];
+	SQL_FetchString(handle, 1, clanId, sizeof(clanId));
 	int rankInClan = SQL_FetchInt(handle, 2);
 
 	if (rankInClan == 1)
 	{
-		ReplyToCommand(client, "[P&CS] You cannot leave a clan that you own. You must delete the clan or transfer ownership of the clan to a different player.");
+		PrintToChat(client, "\x07e50000[P&CS] You cannot leave a clan that you own. You must delete the clan by entering: !deleteclan %s", clanId);
 		return;
 	}
 
@@ -1895,7 +1899,7 @@ public void SqlQueryCallback_Command_LeaveClan2(Handle database, Handle handle, 
 		ThrowError("SQL query error in SqlQueryCallback_Command_LeaveClan2: %d, '%s'", client, sError);
 	}
 
-	ReplyToCommand(client, "[P&CS] You have successfully left your clan.");
+	PrintToChat(client, "\x05[P&CS] You have successfully left your clan.");
 
 	UpdateClientName(client);
 }

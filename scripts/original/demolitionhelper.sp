@@ -4,7 +4,7 @@
 #pragma semicolon 1
 #pragma newdecls required
 
-#define PLUGIN_VERSION "1.04"
+#define PLUGIN_VERSION "1.05"
 
 const int OVERRIDE_MESSAGE_COUNT_MAX = 10;
 const int OVERRIDE_MESSAGE_DIFFUSE = 11;
@@ -42,7 +42,7 @@ public Action OnClientSayCommand(int client, const char[] command, const char[] 
 {
 	if (!_isEnabled || client != 0 || !StrEqual(command, "say", false))
 	{
-		return Plugin_Handled;
+		return Plugin_Continue;
 	}
 
 	if (StrContains(sArgs, "HAVE PICKED UP THE BOMB!", false) >= 0)
@@ -62,7 +62,7 @@ public Action OnClientSayCommand(int client, const char[] command, const char[] 
 		OnBombDropped();
 	}
 
-	return Plugin_Handled;
+	return Plugin_Continue;
 }
 
 public void OnMapEnd()

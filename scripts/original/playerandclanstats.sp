@@ -4,7 +4,7 @@
 #pragma semicolon 1
 #pragma newdecls required
 
-#define PLUGIN_VERSION "2.00"
+#define PLUGIN_VERSION "2.01"
 
 StringMap _authIdDisconnectTimestampMap;
 Database _database;
@@ -20,7 +20,7 @@ int _postDbCallOutputCount = -1;
 
 public Plugin myinfo =
 {
-	name = "P&CS",
+	name = "Player and Clan Stats",
 	author = "Tollski",
 	description = "",
 	version = PLUGIN_VERSION,
@@ -1983,11 +1983,28 @@ public void SqlQueryCallback_Command_ResetStats1(Handle database, Handle handle,
 	inputPack.Reset();
 	char recordType[16];
 	inputPack.ReadString(recordType, sizeof(recordType));
-	CloseHandle(inputPack);
+	//CloseHandle(inputPack);
 
 	if (!handle)
 	{
 		ThrowError("SQL query error in SqlQueryCallback_Command_ResetStats1: '%s'", sError);
+	}
+
+	char queryString[256];
+	SQL_FormatQuery(_database, queryString, sizeof(queryString), "DELETE FROM pcs_clan_stats WHERE RecordType = '%s'", recordType);
+	SQL_TQuery(_database, SqlQueryCallback_Command_ResetStats2, queryString, inputPack);
+}
+
+public void SqlQueryCallback_Command_ResetStats2(Handle database, Handle handle, const char[] sError, DataPack inputPack)
+{
+	inputPack.Reset();
+	char recordType[16];
+	inputPack.ReadString(recordType, sizeof(recordType));
+	CloseHandle(inputPack);
+
+	if (!handle)
+	{
+		ThrowError("SQL query error in SqlQueryCallback_Command_ResetStats2: '%s'", sError);
 	}
 
 	char auditString[64];
@@ -2158,6 +2175,18 @@ public void SqlQueryCallback_ResetStartupStats1(Handle database, Handle handle, 
 	if (!handle)
 	{
 		ThrowError("SQL query error in SqlQueryCallback_ResetStartupStats1: '%s'", sError);
+	}
+
+	char queryString[256];
+	SQL_FormatQuery(_database, queryString, sizeof(queryString), "DELETE FROM pcs_clan_stats WHERE RecordType = 'Startup'");
+	SQL_TQuery(_database, SqlQueryCallback_ResetStartupStats2, queryString);
+}
+
+public void SqlQueryCallback_ResetStartupStats2(Handle database, Handle handle, const char[] sError, any nothing)
+{
+	if (!handle)
+	{
+		ThrowError("SQL query error in SqlQueryCallback_ResetStartupStats2: '%s'", sError);
 	}
 
 	for (int i = 1; i < MaxClients + 1; i++)

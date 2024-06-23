@@ -4,7 +4,7 @@
 #pragma semicolon 1
 #pragma newdecls required
 
-#define PLUGIN_VERSION "1.05"
+#define PLUGIN_VERSION "1.06"
 
 const int OVERRIDE_MESSAGE_COUNT_MAX = 10;
 const int OVERRIDE_MESSAGE_DIFFUSE = 11;
@@ -16,6 +16,8 @@ int _entityToMark = -1;
 bool _isEnabled = false;
 int _normalMpIgnoreWinConditionsValue;
 int _overrideMessages[MAXPLAYERS + 1] = { -1, ... };
+
+Handle _updateTipTimerHandle = null;
 
 public Plugin myinfo =
 {
@@ -34,8 +36,6 @@ public void OnPluginStart()
 	HookEvent("controlpoint_endtouch", Event_ControlpointEndTouch);
 	HookEvent("controlpoint_starttouch", Event_ControlpointStartTouch);
 	HookEvent("round_start", Event_RoundStart);
-
-	CreateTimer(0.5, UpdateTipTimer, _, TIMER_REPEAT);
 }
 
 public Action OnClientSayCommand(int client, const char[] command, const char[] sArgs)
@@ -95,6 +95,15 @@ public void OnMapStart()
 
 	ConVar mpIgnoreWinConditionsConVar = FindConVar("mp_ignore_win_conditions");
 	_normalMpIgnoreWinConditionsValue = mpIgnoreWinConditionsConVar.IntValue;
+
+	_bombPickedUpByTeam = -1;
+	_bombPlantedByTeam = -1;
+	_entityToMark = -1;
+
+	if (_updateTipTimerHandle == null)
+	{
+		_updateTipTimerHandle = CreateTimer(0.5, UpdateTipTimer, _, TIMER_REPEAT);
+	}	
 }
 
 //
@@ -369,6 +378,12 @@ public void ShowMarker(int entityToMark, const char[] renderColor)
 
 public Action UpdateTipTimer(Handle timer, DataPack inputPack)
 {
+	if (!_isEnabled)
+	{
+		_updateTipTimerHandle = null;
+		return Plugin_Stop;
+	}
+
 	if (_entityToMark < 0)
 	{
 		return Plugin_Continue;

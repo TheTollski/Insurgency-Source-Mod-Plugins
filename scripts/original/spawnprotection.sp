@@ -7,7 +7,8 @@
 
 #define PLUGIN_VERSION "1.00"
 
-int _playerLastSpawnTimestamps[MAXPLAYERS + 1] = { -1, ... };
+int _playerLastProtectedSpawnTimestamps[MAXPLAYERS + 1] = { -1, ... };
+int _teamLastProtectedSpawnEventTimestamps[4] = { -1, ... };
 
 public Plugin myinfo =
 {
@@ -25,7 +26,8 @@ public Plugin myinfo =
 public void OnPluginStart()
 {
 	CreateConVar("sm_spawnprotection_version", PLUGIN_VERSION, "Standard plugin version ConVar. Please don't change me!", FCVAR_REPLICATED|FCVAR_NOTIFY|FCVAR_DONTRECORD);
-	
+
+	HookEvent("controlpoint_captured", Event_ControlpointCaptured);
 	HookEvent("player_spawn", Event_PlayerSpawn);
 }
 
@@ -44,14 +46,14 @@ public void OnClientPutInServer(int client)
 
 public Action OnTakeDamage(int victim, int &attacker, int &inflictor, float &damage, int &damageType, int &weapon, float damageForce[3], float damagePosition[3], int damagecustom)
 {
-	//PrintToChatAll("OnTakeDamage. victim: %d, attacker: %d, inflictor: %d, dmg: %0.1f, damageType: %d, weapon: %d", victim, attacker, inflictor, damage, damageType, weapon);
+	// PrintToChatAll("OnTakeDamage. victim: %d, attacker: %d, inflictor: %d, dmg: %0.1f, damageType: %d, weapon: %d", victim, attacker, inflictor, damage, damageType, weapon);
 
-	if (_playerLastSpawnTimestamps[victim] < 0) 
+	if (_playerLastProtectedSpawnTimestamps[victim] < 0) 
 	{ 
 		return Plugin_Continue; 
 	}
 	
-	int timeSinceVictimSpawned = GetTime() - _playerLastSpawnTimestamps[victim];
+	int timeSinceVictimSpawned = GetTime() - _playerLastProtectedSpawnTimestamps[victim];
 	if (timeSinceVictimSpawned > 5)
 	{
 		return Plugin_Continue;
@@ -90,16 +92,37 @@ public Action OnTakeDamage(int victim, int &attacker, int &inflictor, float &dam
 	return Plugin_Changed;
 }
 
+public void Event_ControlpointCaptured(Event event, const char[] name, bool dontBroadcast)
+{
+	// int cp = event.GetInt("cp");
+	// char cappers[256];
+	// event.GetString("cappers", cappers, sizeof(cappers));
+	// int oldteam = event.GetInt("oldteam");
+	// int priority = event.GetInt("priority");
+	int team = event.GetInt("team");
+	// PrintToChatAll("controlpoint_captured. cp: %d, cappers: %s, oldteam: %d, priority: %d, team: %d", cp, cappers, oldteam, priority, team);
+
+	_teamLastProtectedSpawnEventTimestamps[team] = GetTime();
+}
+
 public void Event_PlayerSpawn(Event event, const char[] name, bool dontBroadcast)
 {
-	//PrintToChatAll("player_spawn. teamnum: %d, userid: %s", teamnum, userid);
-
 	// int teamnum = event.GetInt("teamnum");
 	int userid = event.GetInt("userid");
+	// PrintToChatAll("player_spawn. teamnum: %d, userid: %d", teamnum, userid);
 
 	int client = GetClientOfUserId(userid);
+	int clientTeam = GetClientTeam(client);
 
-	_playerLastSpawnTimestamps[client] = GetTime();
+	int now = GetTime();
+	if (_teamLastProtectedSpawnEventTimestamps[clientTeam] < 0 || now - _teamLastProtectedSpawnEventTimestamps[clientTeam] > 0)
+	{
+		// PrintToChat(client, "This is NOT a protected spawn.");
+		return;
+	}
+
+	// PrintToChat(client, "This is a protected spawn.");
+	_playerLastProtectedSpawnTimestamps[client] = now;
 }
 
 //

@@ -7,6 +7,7 @@
 
 #define PLUGIN_VERSION "1.00"
 
+int _playerLastSpawnTimestamps[MAXPLAYERS + 1] = { -1, ... };
 int _playerLastProtectedSpawnTimestamps[MAXPLAYERS + 1] = { -1, ... };
 int _teamLastProtectedSpawnEventTimestamps[4] = { -1, ... };
 
@@ -28,6 +29,8 @@ public void OnPluginStart()
 	CreateConVar("sm_spawnprotection_version", PLUGIN_VERSION, "Standard plugin version ConVar. Please don't change me!", FCVAR_REPLICATED|FCVAR_NOTIFY|FCVAR_DONTRECORD);
 
 	HookEvent("controlpoint_captured", Event_ControlpointCaptured);
+	HookEvent("flag_drop", Event_FlagDrop);
+	HookEvent("flag_pickup", Event_FlagPickup);
 	HookEvent("player_spawn", Event_PlayerSpawn);
 }
 
@@ -102,7 +105,39 @@ public void Event_ControlpointCaptured(Event event, const char[] name, bool dont
 	int team = event.GetInt("team");
 	// PrintToChatAll("controlpoint_captured. cp: %d, cappers: %s, oldteam: %d, priority: %d, team: %d", cp, cappers, oldteam, priority, team);
 
-	_teamLastProtectedSpawnEventTimestamps[team] = GetTime();
+	ProtectTeamSpawns(team);
+}
+
+public void Event_FlagDrop(Event event, const char[] name, bool dontBroadcast)
+{
+	//int priority = event.GetInt("priority");
+	int userid = event.GetInt("userid");
+	//PrintToChatAll("flag_drop. priority: %d, userid: %d", priority, userid);
+
+	int client = GetClientOfUserId(userid);
+	int clientTeam = GetClientTeam(client);
+
+	if (clientTeam == 2)
+	{
+		ProtectTeamSpawns(3);
+	}
+	else if (clientTeam == 3)
+	{
+		ProtectTeamSpawns(2);
+	}	
+}
+
+public void Event_FlagPickup(Event event, const char[] name, bool dontBroadcast)
+{
+	//int cp = event.GetInt("cp");
+	//int priority = event.GetInt("priority");
+	int userid = event.GetInt("userid");
+	//PrintToChatAll("flag_captured. cp: %d, priority: %d, userid: %d", cp, priority, userid);
+
+	int client = GetClientOfUserId(userid);
+	int clientTeam = GetClientTeam(client);
+
+	ProtectTeamSpawns(clientTeam);
 }
 
 public void Event_PlayerSpawn(Event event, const char[] name, bool dontBroadcast)
@@ -115,9 +150,10 @@ public void Event_PlayerSpawn(Event event, const char[] name, bool dontBroadcast
 	int clientTeam = GetClientTeam(client);
 
 	int now = GetTime();
+	_playerLastSpawnTimestamps[client] = now;
+
 	if (_teamLastProtectedSpawnEventTimestamps[clientTeam] < 0 || now - _teamLastProtectedSpawnEventTimestamps[clientTeam] > 0)
 	{
-		// PrintToChat(client, "This is NOT a protected spawn.");
 		return;
 	}
 
@@ -150,6 +186,21 @@ public void DealDamageToClient(int client, int damage)
 public int NullMenuHandler(Menu menu, MenuAction action, int param1, int param2)
 {
 	return 0;
+}
+
+public void ProtectTeamSpawns(int team)
+{
+	_teamLastProtectedSpawnEventTimestamps[team] = GetTime();
+
+	int now = GetTime();
+	for (int i = 1; i < MaxClients + 1; i++)
+	{
+		if (IsClientInGame(i) && GetClientTeam(i) == team && _playerLastSpawnTimestamps[i] > 0 && now - _playerLastSpawnTimestamps[i] <= 0)
+		{
+			// PrintToChat(i, "You are protected.");
+			_playerLastProtectedSpawnTimestamps[i] = now;
+		}
+	}
 }
 
 public void ShowPanelMessage(int client, const char[] message)

@@ -63,11 +63,28 @@ public Action OnTakeDamage(int victim, int &attacker, int &inflictor, float &dam
 	if (timeSinceVictimSpawned <= 2)
 	{
 		PrintToChat(attacker, "\x07f5bf03[Spawn Protection] Reflecting damage, that player spawned %d seconds ago.", timeSinceVictimSpawned);
+
+		char attackerPanelMessage[128];
+		Format(attackerPanelMessage, sizeof(attackerPanelMessage), "[Spawn Protection] You were penalized %d HP for hurting %N.", localDamage, victim);
+		ShowPanelMessage(attacker, attackerPanelMessage);
+		
+		char victimPanelMessage[128];
+		Format(victimPanelMessage, sizeof(victimPanelMessage), "[Spawn Protection] %N was penalized %d HP for hurting you.", attacker, localDamage);
+		ShowPanelMessage(victim, victimPanelMessage);
+		
 		DealDamageToClient(attacker, localDamage);
 	}
 	else
 	{
-		PrintToChat(attacker, "\x07f5bf03[Spawn Protection] Preventing damage, that player spawned %d seconds ago.", timeSinceVictimSpawned);			
+		PrintToChat(attacker, "\x07f5bf03[Spawn Protection] Preventing damage, that player spawned %d seconds ago.", timeSinceVictimSpawned);
+
+		char attackerPanelMessage[128];
+		Format(attackerPanelMessage, sizeof(attackerPanelMessage), "[Spawn Protection] %d of your damage was prevented to %N.", localDamage, victim);
+		ShowPanelMessage(attacker, attackerPanelMessage);
+
+		char victimPanelMessage[128];
+		Format(victimPanelMessage, sizeof(victimPanelMessage), "[Spawn Protection] %d damage was prevented to you.", localDamage);
+		ShowPanelMessage(victim, victimPanelMessage);
 	}
 
 	return Plugin_Changed;
@@ -105,4 +122,18 @@ public void DealDamageToClient(int client, int damage)
 	{
 		SetEntityHealth(client, health - damage);	
 	}
+}
+
+public int NullMenuHandler(Menu menu, MenuAction action, int param1, int param2)
+{
+	return 0;
+}
+
+public void ShowPanelMessage(int client, const char[] message)
+{
+	Panel panel = CreatePanel(INVALID_HANDLE);
+
+	DrawPanelText(panel, message);
+	SendPanelToClient(panel, client, NullMenuHandler, 2);
+	CloseHandle(panel);
 }

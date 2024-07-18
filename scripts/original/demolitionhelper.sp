@@ -4,7 +4,7 @@
 #pragma semicolon 1
 #pragma newdecls required
 
-#define PLUGIN_VERSION "1.06"
+#define PLUGIN_VERSION "1.07"
 
 const int OVERRIDE_MESSAGE_COUNT_MAX = 10;
 const int OVERRIDE_MESSAGE_DIFFUSE = 11;
@@ -16,6 +16,9 @@ int _entityToMark = -1;
 bool _isEnabled = false;
 int _normalMpIgnoreWinConditionsValue;
 int _overrideMessages[MAXPLAYERS + 1] = { -1, ... };
+
+char _bombPickedUpSound[] = "demolition/bomb_picked_up.ogg";
+char _bombPlantedSound[] = "demolition/bomb_planted.ogg";
 
 Handle _updateTipTimerHandle = null;
 
@@ -103,7 +106,10 @@ public void OnMapStart()
 	if (_updateTipTimerHandle == null)
 	{
 		_updateTipTimerHandle = CreateTimer(0.5, UpdateTipTimer, _, TIMER_REPEAT);
-	}	
+	}
+
+	PrecacheSound(_bombPickedUpSound, true);
+	PrecacheSound(_bombPlantedSound, true);
 }
 
 //
@@ -199,6 +205,7 @@ public void OnBombDropped()
 
 	_bombPickedUpByTeam = -1;
 	MarkBomb();
+	StopSoundForAllClients(_bombPickedUpSound);
 }
 
 public void OnBombPickedUp(int teamWithBomb)
@@ -209,6 +216,7 @@ public void OnBombPickedUp(int teamWithBomb)
 
 	_bombPickedUpByTeam = teamWithBomb;
 	MarkPlantZone(teamWithBomb);
+	EmitSoundToAllClients(_bombPickedUpSound);
 }
 
 public void OnBombPlanted(int teamWithBomb)
@@ -227,11 +235,24 @@ public void OnBombPlanted(int teamWithBomb)
 
 	_bombPlantedByTeam = teamWithBomb;
 	MarkPlantZone(teamWithBomb);
+	EmitSoundToAllClients(_bombPlantedSound);
 }
 
 //
 // Helper Functions
 //
+
+public void EmitSoundToAllClients(const char[] sound)
+{
+	PrintToServer("[Demolition Helper] Emitting sound '%s' to clients.", sound);
+	for (int i = 1; i < MaxClients + 1; i++)
+	{
+		if (IsClientInGame(i) && !IsFakeClient(i))
+		{
+			EmitSoundToClient(i, sound);
+		}
+	}
+}
 
 public int GetBombEntity()
 {
@@ -291,6 +312,18 @@ public void PrintTipToPlayersByTeam(const char[] textToPrintToSecurity, const ch
 				_overrideMessages[i] = 6;
 				PrintCenterText(i, textToPrintToInsurgents);
 			}
+		}
+	}
+}
+
+public void StopSoundForAllClients(const char[] sound)
+{
+	PrintToServer("[Demolition Helper] Stopping sound '%s' for clients.", sound);
+	for (int i = 1; i < MaxClients + 1; i++)
+	{
+		if (IsClientInGame(i) && !IsFakeClient(i))
+		{
+			StopSound(i, SNDCHAN_AUTO, sound);
 		}
 	}
 }

@@ -4,7 +4,7 @@
 #pragma semicolon 1
 #pragma newdecls required
 
-#define PLUGIN_VERSION "1.07"
+#define PLUGIN_VERSION "1.08"
 
 const int OVERRIDE_MESSAGE_COUNT_MAX = 10;
 const int OVERRIDE_MESSAGE_DIFFUSE = 11;
@@ -235,6 +235,7 @@ public void OnBombPlanted(int teamWithBomb)
 
 	_bombPlantedByTeam = teamWithBomb;
 	MarkPlantZone(teamWithBomb);
+	StopSoundForAllClients(_bombPickedUpSound);
 	EmitSoundToAllClients(_bombPlantedSound);
 }
 
@@ -249,7 +250,7 @@ public void EmitSoundToAllClients(const char[] sound)
 	{
 		if (IsClientInGame(i) && !IsFakeClient(i))
 		{
-			EmitSoundToClient(i, sound);
+			EmitSoundToClient(i, sound, SOUND_FROM_PLAYER, SNDCHAN_AUTO, SNDLEVEL_NORMAL, SND_CHANGEVOL, 0.45, SNDPITCH_NORMAL);
 		}
 	}
 }

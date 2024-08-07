@@ -5,10 +5,11 @@
 #pragma semicolon 1
 #pragma newdecls required
 
-#define PLUGIN_VERSION "1.00"
+#define PLUGIN_VERSION "1.01"
 
 int _playerLastSpawnTimestamps[MAXPLAYERS + 1] = { -1, ... };
 int _playerLastProtectedSpawnTimestamps[MAXPLAYERS + 1] = { -1, ... };
+int _playerLastWeaponFireTimestamps[MAXPLAYERS + 1] = { -1, ... };
 int _teamLastProtectedSpawnEventTimestamps[4] = { -1, ... };
 
 public Plugin myinfo =
@@ -19,6 +20,9 @@ public Plugin myinfo =
 	version = PLUGIN_VERSION,
 	url = "Your website URL/AlliedModders profile URL"
 };
+
+// TODO
+// Disable on distance moved.
 
 //
 // Forwards
@@ -32,6 +36,7 @@ public void OnPluginStart()
 	HookEvent("flag_drop", Event_FlagDrop);
 	HookEvent("flag_pickup", Event_FlagPickup);
 	HookEvent("player_spawn", Event_PlayerSpawn);
+	HookEvent("weapon_fire", Event_WeaponFire);
 }
 
 public void OnClientPutInServer(int client) 
@@ -57,7 +62,12 @@ public Action OnTakeDamage(int victim, int &attacker, int &inflictor, float &dam
 	}
 	
 	int timeSinceVictimSpawned = GetTime() - _playerLastProtectedSpawnTimestamps[victim];
-	if (timeSinceVictimSpawned > 5)
+	if (timeSinceVictimSpawned > 3)
+	{
+		return Plugin_Continue;
+	}
+
+	if (_playerLastProtectedSpawnTimestamps[victim] <= _playerLastWeaponFireTimestamps[victim])
 	{
 		return Plugin_Continue;
 	}
@@ -65,7 +75,7 @@ public Action OnTakeDamage(int victim, int &attacker, int &inflictor, float &dam
 	int localDamage = RoundToNearest(damage);
 	damage = 0.0; // Prevent damage to victim.
 
-	if (timeSinceVictimSpawned <= 2)
+	if (timeSinceVictimSpawned <= 1)
 	{
 		PrintToChat(attacker, "\x07f5bf03[Spawn Protection] Reflecting damage, that player spawned %d seconds ago.", timeSinceVictimSpawned);
 
@@ -159,6 +169,18 @@ public void Event_PlayerSpawn(Event event, const char[] name, bool dontBroadcast
 
 	// PrintToChat(client, "This is a protected spawn.");
 	_playerLastProtectedSpawnTimestamps[client] = now;
+}
+
+public void Event_WeaponFire(Event event, const char[] name, bool dontBroadcast)
+{
+	// int weaponid = event.GetInt("weaponid");
+	int userid = event.GetInt("userid");
+	// int shots = event.GetInt("shots");
+	// PrintToChatAll("weapon_fire. weaponid: %d, userid: %d", shots: %d, weaponid, userid, shots);
+
+	int client = GetClientOfUserId(userid);
+
+	_playerLastWeaponFireTimestamps[client] = GetTime();
 }
 
 //
